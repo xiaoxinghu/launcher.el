@@ -24,6 +24,13 @@ User-specific directories can be added here."
   :type '(repeat string)
   :group 'launcher)
 
+(defcustom launcher-fallback-search-url
+  "https://www.google.com/search?q=%s"
+  "URL template for fallback web search when no app matches.
+%s will be replaced with the URL-encoded search query."
+  :type 'string
+  :group 'launcher)
+
 (defvar launcher--apps nil
   "Cached app entries as an alist of (display-name . app-path).")
 
@@ -111,7 +118,8 @@ When DUPLICATE-P is non-nil, include path context."
 ;;;###autoload
 (defun launcher (&optional refresh)
   "Prompt for a macOS app from Spotlight index and launch it.
-With prefix argument REFRESH, rebuild app index first."
+With prefix argument REFRESH, rebuild app index first.
+If input does not match any app, search for it on Google."
   (interactive "P")
   (when refresh
     (launcher-refresh))
@@ -124,10 +132,15 @@ With prefix argument REFRESH, rebuild app index first."
     (unwind-protect
         (progn
           (setq launcher--current-entries entries)
-          (let* ((choice (completing-read "Launch app: " names nil t))
+          (let* ((choice (completing-read "Launch app: " names nil nil))
                  (path (cdr (assoc choice entries))))
-            (launcher--launch path)
-            (message "Launching %s" choice)))
+            (if path
+                (progn
+                  (launcher--launch path)
+                  (message "Launching %s" choice))
+              (browse-url (format launcher-fallback-search-url
+                                  (url-hexify-string choice)))
+              (message "Searching Google for: %s" choice))))
       (setq launcher--current-entries nil))))
 
 (provide 'launcher)
