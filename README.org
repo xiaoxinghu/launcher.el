@@ -1,0 +1,35 @@
+#+TITLE: launcher.el
+
+Launch macOS applications from Emacs.
+
+[[./assets/screenshot.png]]
+
+* Installation
+
+#+begin_src emacs-lisp
+(use-package launcher
+  :vc (:url "https://github.com/xiaoxinghu/launcher.el" :rev :newest))
+#+end_src
+
+* Usage
+
+- ~M-x launcher~ — pick and launch an app
+- ~C-u M-x launcher~ — rebuild index first
+- ~M-x launcher-refresh~ — rebuild index without launching
+
+If input matches no app, falls back to a web search (~launcher-fallback-search-url~).
+
+* Works with [[https://github.com/xiaoxinghu/m-x][M-x.app]]
+
+M-x.app registers the ~emacs://~ URL scheme, letting you invoke Elisp from a global hotkey anywhere on macOS. Bind it to =cmd + space=, you get a system-wide app launcher — Raycast-style, but in Emacs.
+
+* Roadmap
+
+This is part of a broader effort to replace Raycast with Emacs.
+
+** TODO *Bang commands*
+~!g query~, ~!gh repo~, ~!yt video~ to redirect input to configurable URL templates
+** TODO *Custom commands*
+register named elisp actions alongside apps via ~launcher-register-command~
+** TODO *Built-in extensions*
+calculator, clipboard history, window management, system commands (sleep/lock/restart), file search, quick links, snippets
