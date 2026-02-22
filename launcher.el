@@ -31,6 +31,18 @@ User-specific directories can be added here."
   :type 'string
   :group 'launcher)
 
+(defcustom launcher-bangs
+  '(("!g"  "Google"  "https://www.google.com/search?q=%s")
+    ("!yt" "YouTube" "https://www.youtube.com/results?search_query=%s")
+    ("!gh" "GitHub"  "https://github.com/search?q=%s"))
+  "Bang shortcuts for direct web searches.
+Each entry is (BANG NAME URL-TEMPLATE).  BANG is the trigger prefix
+\(e.g. \"!g\"), NAME is a human-readable label shown in annotations,
+and URL-TEMPLATE has %s replaced with the URL-encoded search query.
+Type BANG followed by a space in the launcher prompt to enter bang mode."
+  :type '(repeat (list string string string))
+  :group 'launcher)
+
 (defvar launcher--apps nil
   "Cached app entries as an alist of (display-name . app-path).")
 
@@ -110,15 +122,58 @@ When DUPLICATE-P is non-nil, include path context."
     (unless (zerop exit-code)
       (user-error "Failed to launch app: %s" app-path))))
 
+(defun launcher--bang-for-input (input)
+  "Return the bang entry whose key prefixes INPUT (BANG SPACE ...), or nil.
+INPUT must begin with a bang key from `launcher-bangs' followed by a space."
+  (when-let* ((space-pos (string-match " " input))
+              (bang-key (substring input 0 space-pos)))
+    (seq-find (lambda (entry) (equal (car entry) bang-key))
+              launcher-bangs)))
+
 (defun launcher--annotation (candidate)
   "Return a completion annotation for CANDIDATE."
-  (when-let ((path (cdr (assoc candidate launcher--current-entries))))
-    (concat "  " (abbreviate-file-name path))))
+  (if-let ((bang-entry (seq-find (lambda (e) (equal (car e) candidate))
+                                 launcher-bangs)))
+      (format "  → %s search" (cadr bang-entry))
+    (when-let ((path (cdr (assoc candidate launcher--current-entries))))
+      (concat "  " (abbreviate-file-name path)))))
+
+(defun launcher--make-collection (entries)
+  "Return a dynamic completion collection for ENTRIES with bang support.
+In normal mode completes against app names and bang shortcut keys.
+Once the input is BANG SPACE (e.g. \"!g \"), enters bang mode: the
+candidate list is cleared and any query typed after the space is passed
+directly to the matching search engine on Enter."
+  (let ((names (mapcar #'car entries))
+        (bang-keys (mapcar #'car launcher-bangs)))
+    (lambda (string pred action)
+      ;; Read the real minibuffer contents rather than the `string' argument:
+      ;; completion frameworks like vertico+orderless call the collection with
+      ;; string="" to fetch all candidates and then filter themselves, so the
+      ;; `string' argument never contains the full "!g ..." the user typed.
+      (let* ((full-input (if (active-minibuffer-window)
+                             (with-current-buffer
+                                 (window-buffer (active-minibuffer-window))
+                               (minibuffer-contents))
+                           string))
+             (in-bang-mode (launcher--bang-for-input full-input)))
+        (if in-bang-mode
+            ;; Bang mode: no candidates, accept any input as-is.
+            (cond
+             ((eq action 'metadata) '(metadata))
+             ((consp action) nil)           ; (boundaries . suffix)
+             ((eq action nil) nil)          ; try-completion: nothing to complete
+             ((eq action t) '())            ; all-completions: empty list
+             ((eq action 'lambda) t))       ; test-completion: always valid
+          ;; Normal mode: complete against bang keys + app names.
+          (complete-with-action action (append bang-keys names) string pred))))))
 
 ;;;###autoload
 (defun launcher (&optional refresh)
   "Prompt for a macOS app from Spotlight index and launch it.
 With prefix argument REFRESH, rebuild app index first.
+Type a bang shortcut followed by a space to search the web directly:
+  !g  → Google   !yt → YouTube   !gh → GitHub
 If input does not match any app, search for it on Google."
   (interactive "P")
   (when refresh
@@ -126,23 +181,29 @@ If input does not match any app, search for it on Google."
   (let* ((entries (launcher--ensure-index))
          (completion-extra-properties
           '(:annotation-function launcher--annotation))
-         (names (mapcar #'car entries)))
+         (collection (launcher--make-collection entries)))
     (unless entries
       (user-error "No apps discovered from Spotlight index"))
     (unwind-protect
         (progn
           (setq launcher--current-entries entries)
-          (let* ((choice (completing-read "Launch app: " names nil nil))
+          (let* ((choice (completing-read "Launch: " collection nil nil))
+                 (bang-entry (launcher--bang-for-input choice))
                  (path (cdr (assoc choice entries))))
-            (if path
-                (progn
-                  (launcher--launch path)
-                  (message "Launching %s" choice))
+            (cond
+             (bang-entry
+              (let ((query (substring choice (1+ (length (car bang-entry))))))
+                (browse-url (format (caddr bang-entry)
+                                    (url-hexify-string query)))
+                (message "Searching %s for: %s" (cadr bang-entry) query)))
+             (path
+              (launcher--launch path)
+              (message "Launching %s" choice))
+             (t
               (browse-url (format launcher-fallback-search-url
                                   (url-hexify-string choice)))
-              (message "Searching Google for: %s" choice))))
+              (message "Searching Google for: %s" choice)))))
       (setq launcher--current-entries nil))))
 
 (provide 'launcher)
-
 ;;; launcher.el ends here
