@@ -18,6 +18,21 @@ Launch macOS applications from Emacs.
 - ~M-x launcher-refresh~ — rebuild index without launching
 
 If input matches no app, falls back to a web search (~launcher-fallback-search-url~).
+Use ~!g query~, ~!gh query~, or ~!yt query~ for a specific search engine.
+Empty input, whitespace, or a configured bang without a query cancels without
+launching or searching.  Return accepts the completion UI's selected app even
+when no text has been typed.
+
+In stock completion, Space inserts a space and Tab completes.  Custom Space
+bindings and completion UIs such as Vertico are preserved.
+
+* Development
+
+Run the input regression tests without launching apps or opening a browser:
+
+#+begin_src sh
+emacs --batch -Q -L . -l test/launcher-tests.el -f ert-run-tests-batch-and-exit
+#+end_src
 
 * Works with [[https://github.com/xiaoxinghu/m-x][M-x.app]]
 

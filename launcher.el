@@ -2,6 +2,7 @@
 
 (require 'subr-x)
 (require 'seq)
+(require 'url-util)
 
 (defgroup launcher nil
   "Launch macOS applications from Emacs."
@@ -168,13 +169,33 @@ directly to the matching search engine on Enter."
           ;; Normal mode: complete against bang keys + app names.
           (complete-with-action action (append bang-keys names) string pred))))))
 
+(defun launcher--read-choice (collection)
+  "Read from COLLECTION, allowing spaces and cancelling empty queries.
+Keep the user's completion reader and any custom Space binding."
+  (let* ((choice
+          (minibuffer-with-setup-hook
+              (lambda ()
+                (when (eq (key-binding " ") #'minibuffer-complete-word)
+                  (let ((map (make-sparse-keymap)))
+                    (set-keymap-parent map (current-local-map))
+                    (define-key map " " #'self-insert-command)
+                    (use-local-map map))))
+            (completing-read "Launch: " collection nil nil)))
+         (words (split-string choice)))
+    (when (or (null words)
+              (and (null (cdr words)) (assoc (car words) launcher-bangs)))
+      (signal 'quit nil))
+    choice))
+
 ;;;###autoload
 (defun launcher (&optional refresh)
   "Prompt for a macOS app from Spotlight index and launch it.
 With prefix argument REFRESH, rebuild app index first.
 Type a bang shortcut followed by a space to search the web directly:
   !g  → Google   !yt → YouTube   !gh → GitHub
-If input does not match any app, search for it on Google."
+If input does not match any app, search for it on Google.
+Empty input or a bang without a query cancels without launching or searching.
+Space inserts a space in stock completion; Tab still completes."
   (interactive "P")
   (when refresh
     (launcher-refresh))
@@ -187,7 +208,7 @@ If input does not match any app, search for it on Google."
     (unwind-protect
         (progn
           (setq launcher--current-entries entries)
-          (let* ((choice (completing-read "Launch: " collection nil nil))
+          (let* ((choice (launcher--read-choice collection))
                  (bang-entry (launcher--bang-for-input choice))
                  (path (cdr (assoc choice entries))))
             (cond
