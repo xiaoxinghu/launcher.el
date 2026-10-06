@@ -20,6 +20,13 @@ The launcher must work in a normal Emacs window with Portal entirely absent.
 4. [Configuration and end-to-end acceptance](configuration-and-acceptance.md) —
    reserved for a later agent, after implementation and Portal prerequisites.
 
+Independent enhancement (can run in parallel with the sequence above):
+
+- [Native app icons](native-app-icons.md) — native macOS extraction, asynchronous
+  64/256/512-pixel caching, update-aware invalidation, and completion prefixes.
+  Provides a shared icon interface for future larger previews; does not implement
+  their layout or depend on the full-buffer/Portal tasks.
+
 Portal's independent infrastructure tasks are at:
 
 - `../portal/tasks/launcher-panel-height-bounds.md`
