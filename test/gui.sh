@@ -2,7 +2,8 @@
 # GUI ONLY, in the test VM: bash test/vm.sh sh test/gui.sh [SELECTOR]
 # Runs the graphical checks of launcher-buffer and of tool routing in a
 # disposable Emacs without Portal or a user init, typing through AppKit's
-# event queue.
+# event queue.  The real Apple Dictionary checks are opt-in:
+# bash test/vm.sh sh test/gui.sh '^launcher-dictionary-real-'.
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 emacs=${EMACS:-/Applications/Emacs.app/Contents/MacOS/Emacs}
@@ -21,4 +22,5 @@ mkdir -p "$LAUNCHER_TEST_SCREENSHOTS"
     --eval '(module-load (expand-file-name ".cache/native-input.dylib"
                                          (getenv "LAUNCHER_TEST_ROOT")))' \
     -l "$root/test/launcher-tools-gui-tests.el" \
+    -l "$root/test/launcher-osx-dictionary-gui-tests.el" \
     --eval '(run-at-time 1 nil #'\''launcher-gui-run-and-exit)'
