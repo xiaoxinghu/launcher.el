@@ -2,12 +2,13 @@
 
 ;;; Commentary:
 
-;; `launcher-buffer' offers the same app, bang and web choices as
+;; `launcher-buffer' offers the same app, bang, web and tool choices as
 ;; `launcher', but Vertico shows the prompt and candidates at the top of
 ;; the selected ordinary window instead of in the minibuffer.  The command
 ;; owns its interaction until a choice succeeds or the user quits: later
-;; views replace the picker in the same window, `launcher-back' returns
-;; to the previous view and `launcher-quit' ends the interaction.
+;; views, a tool's query and its result, replace the picker in the same
+;; window, `launcher-back' returns to the previous view and
+;; `launcher-quit' ends the interaction.
 ;;
 ;; The command `launcher-buffer', in launcher.el, loads this file on first
 ;; use.  Needs Emacs 29.1 and Vertico 2.x (tested with 2.15), with
@@ -42,16 +43,22 @@
   (prev-buffers nil :documentation "WINDOW's previous buffers.")
   (next-buffers nil :documentation "WINDOW's next buffers.")
   (cap nil :documentation "Candidate rows the picker shows at most.")
-  (view nil :documentation "Current view: (picker INPUT) or (result BUFFER).")
+  (tools nil :documentation "The interaction's `launcher-tools'.")
+  (view nil :documentation "Current view: (picker INPUT), (query TOOL INPUT)
+or (result BUFFER).")
   (history nil :documentation "Views `launcher-back' returns to, newest first.")
-  (minibuffer nil :documentation "The picker's minibuffer while it reads.")
-  (shown nil :documentation "Buffers the interaction showed in WINDOW."))
+  (minibuffer nil :documentation "The picker's or query's minibuffer while it reads.")
+  (shown nil :documentation "Buffers the interaction showed in WINDOW.")
+  (end nil :documentation "End of the result WINDOW follows, if it does."))
 
 (defvar launcher-buffer--session nil
   "The active `launcher-buffer' interaction, or nil.")
 
 (defvar-local launcher-buffer--picker nil
   "In a `launcher-buffer' picker's minibuffer, its interaction.")
+
+(defvar-local launcher-buffer--query nil
+  "In a `launcher-buffer' query's minibuffer, its interaction.")
 
 (defvar-keymap launcher-buffer-map
   :doc "Keys of `launcher-buffer' result views.
@@ -62,8 +69,9 @@ interaction's window is selected."
   "<escape>" #'launcher-quit)
 
 (defvar-keymap launcher-buffer-picker-map
-  :doc "Keys added to the `launcher-buffer' picker's completion keys.
-C-g quits as in any minibuffer."
+  :doc "Keys added to the `launcher-buffer' picker's and queries' keys.
+In the picker, they take precedence over the completion keys, and in a
+tool's query, over `launcher-query-map'.  C-g quits as in any minibuffer."
   "C-c C-b" #'launcher-back
   "<escape>" #'launcher-quit)
 
@@ -111,9 +119,9 @@ the overlay `vertico--candidates-ov', and `vertico--total' counts them."
   (or launcher-buffer--session
       (user-error "No launcher interaction is active")))
 
-(defun launcher-back ()
-  "Return to the previous view of the active launcher interaction."
-  (interactive)
+(defun launcher-buffer--back ()
+  "Return to the previous view of the active interaction, if any.
+The interaction's value of `launcher--back-function'."
   (let ((session (launcher-buffer--active)))
     (if-let* ((view (pop (launcher-buffer--session-history session))))
         (throw (launcher-buffer--session-tag session) view)
@@ -127,12 +135,13 @@ the overlay `vertico--candidates-ov', and `vertico--total' counts them."
   (throw (launcher-buffer--session-tag (launcher-buffer--active)) 'quit))
 
 (defun launcher-buffer--current-view (session)
-  "Return SESSION's current view, with the picker's current input."
+  "Return SESSION's current view, with the picker's or query's input."
   (let ((view (launcher-buffer--session-view session))
         (minibuffer (launcher-buffer--session-minibuffer session)))
-    (if (and (eq (car view) 'picker) (buffer-live-p minibuffer))
-        (list 'picker (with-current-buffer minibuffer
-                        (minibuffer-contents-no-properties)))
+    (if (and (memq (car view) '(picker query)) (buffer-live-p minibuffer))
+        (append (butlast view)
+                (list (with-current-buffer minibuffer
+                        (minibuffer-contents-no-properties))))
       view)))
 
 (defun launcher-buffer--visit (buffer)
@@ -196,6 +205,7 @@ BUFFER keeps its mode and contents, and is never killed by Launcher."
         `((launcher-buffer--session . ,(launcher-buffer--filtered-keys))))
   (push 'launcher-buffer--emulation emulation-mode-map-alists)
   (add-hook 'post-command-hook #'launcher-buffer--watch)
+  (add-hook 'pre-redisplay-functions #'launcher-buffer--follow)
   ;; Views replace the window's buffer; its dedication returns on exit.
   (set-window-dedicated-p (launcher-buffer--session-window session) nil))
 
@@ -223,6 +233,7 @@ shows a buffer the interaction did not put there."
         (delq 'launcher-buffer--emulation emulation-mode-map-alists))
   (setq launcher-buffer--emulation nil)
   (remove-hook 'post-command-hook #'launcher-buffer--watch)
+  (remove-hook 'pre-redisplay-functions #'launcher-buffer--follow)
   (let ((window (launcher-buffer--session-window session))
         (buffer (launcher-buffer--session-buffer session))
         (start (launcher-buffer--session-start session))
@@ -345,7 +356,7 @@ Run in the picker's minibuffer after Vertico's own setup."
     (add-hook 'minibuffer-exit-hook #'launcher-buffer--exit-picker nil t)))
 
 (defun launcher-buffer--read (session entries initial)
-  "Read a launcher choice among ENTRIES in SESSION's window.
+  "Read a launcher choice among ENTRIES and SESSION's tools in its window.
 INITIAL is the initial input."
   (let* ((window (launcher-buffer--session-window session))
          (outer display-buffer-overriding-action)
@@ -366,16 +377,87 @@ INITIAL is the initial input."
     (unwind-protect
         (progn
           (add-hook 'minibuffer-setup-hook before -90)
-          (launcher--read entries initial
+          (launcher--read entries (launcher-buffer--session-tools session) initial
                           (lambda ()
                             (setq display-buffer-overriding-action outer)
                             (launcher-buffer--after-reader session))))
       (remove-hook 'minibuffer-setup-hook before)
       (setf (launcher-buffer--session-minibuffer session) nil))))
 
+(defun launcher-buffer--query-redisplay (window)
+  "Show the query's input and cursor at the top of its interaction's window.
+Run before redisplaying WINDOW, which shows the query's minibuffer."
+  (when-let* ((session launcher-buffer--query)
+              (mini (active-minibuffer-window))
+              ((eq (window-buffer mini) (current-buffer))))
+    ;; As in the picker, hide the minibuffer window's copy by scrolling.
+    (unless (> (window-vscroll mini) 0)
+      (set-window-vscroll mini 3))
+    (when (eq window (launcher-buffer--session-window session))
+      (set-window-point window (point)))))
+
+(defun launcher-buffer--query-exit ()
+  "Undo the query's changes to the minibuffer window, as it exits."
+  (when-let* ((session launcher-buffer--query))
+    (setf (launcher-buffer--session-minibuffer session) nil))
+  (launcher-buffer--exit-picker))
+
+(defun launcher-buffer--query-setup (session)
+  "Show this tool query's minibuffer at the top of SESSION's window.
+Run in the query's minibuffer, which keeps reading plain text."
+  (let ((window (launcher-buffer--session-window session))
+        (label (string-trim-right (minibuffer-prompt) ":? *")))
+    (setf (launcher-buffer--session-minibuffer session) (current-buffer))
+    ;; Local values, as Vertico's buffer display sets for the picker.
+    (setq-local launcher-buffer--query session
+                resize-mini-windows t
+                cursor-in-non-selected-windows (if (memq cursor-type '(nil t))
+                                                   'box
+                                                 cursor-type)
+                face-remapping-alist (cons '(mode-line-inactive mode-line)
+                                           face-remapping-alist))
+    (when mode-line-format
+      (setq-local mode-line-format
+                  (list " " (propertize label 'face 'mode-line-buffer-id) " ")))
+    (use-local-map (make-composed-keymap launcher-buffer-picker-map
+                                         (current-local-map)))
+    (add-hook 'pre-redisplay-functions #'launcher-buffer--query-redisplay nil t)
+    (add-hook 'minibuffer-exit-hook #'launcher-buffer--query-exit nil t)
+    (launcher-buffer--display session (current-buffer))
+    (set-window-start window (point-min))))
+
+(defun launcher-buffer--read-query (session tool input)
+  "Read TOOL's query in SESSION's window, starting with INPUT.
+Return (BUFFER . QUERY), as `launcher--query' does."
+  (select-window (launcher-buffer--session-window session) 'norecord)
+  (unwind-protect
+      (launcher--query tool input
+                       (lambda () (launcher-buffer--query-setup session)))
+    (setf (launcher-buffer--session-minibuffer session) nil)))
+
+(defun launcher-buffer--follow (window)
+  "Keep a result view at the end of its buffer while it is there.
+Run before redisplaying WINDOW.  If the window's point was at the end
+of a nonempty result when last redisplayed, and text was added there,
+move it to the new end.  Anywhere else, leave the reader's point."
+  (when-let* ((session launcher-buffer--session)
+              ((eq window (launcher-buffer--session-window session)))
+              (view (launcher-buffer--session-view session))
+              ((eq (car view) 'result))
+              ((eq (window-buffer window) (cadr view))))
+    (let ((end (with-current-buffer (cadr view) (point-max)))
+          (last (launcher-buffer--session-end session)))
+      (when (and last (> end last) (= (window-point window) last))
+        (set-window-point window end))
+      (setf (launcher-buffer--session-end session)
+            (and (= (window-point window) end)
+                 (> end (with-current-buffer (cadr view) (point-min)))
+                 end)))))
+
 (defun launcher-buffer--result (session buffer)
   "Show BUFFER in SESSION's window and edit there until the view ends.
 Return nil if the user exits the recursive edit normally."
+  (setf (launcher-buffer--session-end session) nil)
   (select-window (launcher-buffer--display session buffer) 'norecord)
   (recursive-edit)
   nil)
@@ -383,7 +465,8 @@ Return nil if the user exits the recursive edit normally."
 (defun launcher-buffer--run (session entries)
   "Show SESSION's views until a choice among ENTRIES succeeds.
 Signal `quit' if the user quits instead."
-  (let ((view '(picker nil)))
+  (let ((view '(picker nil))
+        (tools (launcher-buffer--session-tools session)))
     (while view
       (when (or (eq view 'quit)
                 (not (window-live-p (launcher-buffer--session-window session))))
@@ -393,9 +476,20 @@ Signal `quit' if the user quits instead."
             (catch (launcher-buffer--session-tag session)
               (pcase-exhaustive view
                 (`(picker ,input)
-                 (launcher--act (launcher-buffer--read session entries input)
-                                entries)
-                 nil)
+                 (let* ((choice (launcher-buffer--read session entries input))
+                        (route (launcher--route choice tools)))
+                   (if (not route)
+                       (progn (launcher--act choice entries) nil)
+                     ;; Back shows the prefix without its space.
+                     (push (list 'picker (launcher--tool-prefix (car route)))
+                           (launcher-buffer--session-history session))
+                     (list 'query (car route) (cdr route)))))
+                (`(query ,tool ,input)
+                 (pcase-let ((`(,buffer . ,query)
+                              (launcher-buffer--read-query session tool input)))
+                   (push (list 'query tool query)
+                         (launcher-buffer--session-history session))
+                   (list 'result buffer)))
                 (`(result ,buffer)
                  (launcher-buffer--result session buffer))))))))
 
@@ -403,9 +497,12 @@ Signal `quit' if the user quits instead."
   "Run a `launcher-buffer' interaction in the selected window.
 With REFRESH, rebuild the app index first."
   (launcher-buffer--check)
-  (let* ((entries (launcher--entries refresh))
+  (let* ((tools (launcher--tools))
+         (entries (launcher--entries refresh tools))
          (session (launcher-buffer--make (selected-window)))
-         (launcher-buffer--session session))
+         (launcher-buffer--session session)
+         (launcher--back-function #'launcher-buffer--back))
+    (setf (launcher-buffer--session-tools session) tools)
     (unwind-protect
         (progn
           (launcher-buffer--install session)

@@ -1,7 +1,8 @@
 #!/bin/sh
 # GUI ONLY, in the test VM: bash test/vm.sh sh test/gui.sh [SELECTOR]
-# Runs launcher-buffer's graphical checks in a disposable Emacs without
-# Portal or a user init, typing through AppKit's event queue.
+# Runs the graphical checks of launcher-buffer and of tool routing in a
+# disposable Emacs without Portal or a user init, typing through AppKit's
+# event queue.
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 emacs=${EMACS:-/Applications/Emacs.app/Contents/MacOS/Emacs}
@@ -19,5 +20,5 @@ mkdir -p "$LAUNCHER_TEST_SCREENSHOTS"
     -L "$elpa/orderless-1.8" -L "$elpa/marginalia-2.13" \
     --eval '(module-load (expand-file-name ".cache/native-input.dylib"
                                          (getenv "LAUNCHER_TEST_ROOT")))' \
-    -l "$root/test/launcher-buffer-gui-tests.el" \
+    -l "$root/test/launcher-tools-gui-tests.el" \
     --eval '(run-at-time 1 nil #'\''launcher-gui-run-and-exit)'

@@ -1,0 +1,55 @@
+For information about GNU Emacs and the GNU system, type C-h C-a.
+Environment: GNU Emacs 31.1 (build 1, aarch64-apple-darwin25.6.0, NS appkit-2685.70 Version 26.6.2 (Build 25G83))
+ of 2026-09-26; repository a360712c9d272d950d8d8255ef74570f7e90b7d9; 27.0.1; Vertico 2.15; frame 80x36 chars, 597x508 px, font Menlo
+Running 16 tests (2026-10-06 01:30:43-0700, selector ‘"^launcher-gui-"’)
+launcher-gui--fail: Synthetic result command failed
+Launching Notes
+Cancel outcomes: (quit quit quit quit host (error "Synthetic launch failure") returned)
+   passed   1/16  launcher-gui-cancel-error-kill-and-reenter (4.785515 sec)
+   passed   2/16  launcher-gui-deleted-window-ends (0.604916 sec)
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm
+Launching Calculator
+Picker states: (("" 6 "!g") ("Cal" 2 "Calculator") ("Calzz" 0 nil) ("" 6 "!g") ("" 6 "Calculator"))
+   passed   3/16  launcher-gui-picker-rows-and-selection (3.029496 sec)
+   passed   4/16  launcher-gui-portal-absent (0.004200 sec)
+Launching Calculator
+Searching Google for: some words
+Searching GitHub for: portal launcher
+Launching Calculator
+Searching Google for: some words
+Searching GitHub for: portal launcher
+Presentations: ((launcher-buffer ("/Applications/Calculator.app") ("https://github.com/search?q=portal%20launcher" "https://www.google.com/search?q=some%20words")) (launcher ("/Applications/Calculator.app") ("https://github.com/search?q=portal%20launcher" "https://www.google.com/search?q=some%20words"))) ((launcher-buffer t) (launcher nil))
+   passed   5/16  launcher-gui-presentations-agree (11.228754 sec)
+Launching Activity Monitor
+Reader states: (("mon" 1 nil t " *Minibuf-1*") ("mon" 1 nil nil " *Minibuf-2*") ("mon" 1 nil t " *Minibuf-1*") ("mon act" 1 nil t " *Minibuf-1*")) nested "beta" file (t t) prompts ("File: " "Nested: " "Launch: ")
+   passed   6/16  launcher-gui-reader-keys-multiform-and-nested (3.180129 sec)
+Result states: ((result "*launcher GUI result*" launcher-gui-result-mode nil 1) (result "*launcher GUI result*" launcher-gui-result-mode nil 1) (picker " *Minibuf-1*" minibuffer-mode "Ca" 1) (picker " *Minibuf-1*" minibuffer-mode "Cal" 1) (result "*launcher GUI result*" launcher-gui-result-mode nil 1))
+   passed   7/16  launcher-gui-result-back-and-quit (3.094039 sec)
+Resize states: ((2 4 "!g" t t 3 36) (2 4 "Calendar" t t 3 36) (2 4 "!g" t t 3 36) (6 0 "!g" t t 34 36) (3 3 "!g" t t 4 6) (3 3 "Activity Monitor" t t 4 6) (6 0 "Activity Monitor" t t 34 36))
+   passed   8/16  launcher-gui-small-window-and-host-resize (3.926994 sec)
+Mark set
+Stream states: ((result 253 253 1) (result 301 301 133) (result 293 335 133) (result 293 398 133) (result 416 416 269) (result 479 479 269) (query 23 23 1) (query 23 23 1))
+   passed   9/16  launcher-gui-tool-async-follow-and-ownership (5.361390 sec)
+Mark set
+Tool buffer states: ((picker " *Minibuf-1*" "Launch: " "d" "" nil) (query " *Minibuf-1*" "Dictionary — Word: " "" "" nil) (query " *Minibuf-1*" "Dictionary — Word: " "serendipity" "" nil) (result "*launcher GUI definition*" nil nil nil ("serendipity")) (result "*launcher GUI definition*" nil nil nil ("serendipity")) (result "*launcher GUI definition*" nil nil nil ("serendipity")) (query " *Minibuf-1*" "Dictionary — Word: " "serendipity" "" ("serendipity")) (picker " *Minibuf-1*" "Launch: " "d" "" ("serendipity")) (query " *Minibuf-1*" "Dictionary — Word: " "" "" ("serendipity")) (picker " *Minibuf-1*" "Launch: " "d" "" ("serendipity")))
+   passed  10/16  launcher-gui-tool-buffer-flow (5.280063 sec)
+Custom states: ((picker " *Minibuf-1*" "Launch: " "dic" "" nil) (query " *Minibuf-1*" "Dictionary — Word: " "custom" "" nil)) reader ("Launch: ")
+   passed  11/16  launcher-gui-tool-custom-reader-and-keys (1.828831 sec)
+Dictionary failed: No definition for bad
+Dictionary failed: Dictionary returned nil instead of a live buffer
+Missing failed: Missing needs ‘launcher-gui-tool--undefined’, which is not defined
+Dictionary failed: No definition for bad
+Launching Notes
+Error states: ((query " *Minibuf-1*" "Dictionary — Word: " "bad" #(" [Dictionary failed: No definition for bad]" 0 1 (cursor t)) ("bad")) (query " *Minibuf-1*" "Dictionary — Word: " "none" #(" [Dictionary failed: Dictionary returned nil instead of a live buffer]" 0 1 (cursor t)) ("bad" "none")) (result nil nil nil nil ("bad" "none" "good")) (query " *Minibuf-1*" "Dictionary — Word: " "good" "" ("bad" "none" "good")) (query " *Minibuf-1*" "Missing — Word: " "word" #(" [Missing failed: Missing needs ‘launcher-gui-tool--undefined’, which is not defined]" 0 1 (cursor t)) ("bad" "none" "good")) (nil " *Minibuf-1*" "Dictionary — Word: " "bad" #(" [Dictionary failed: No definition for bad]" 0 1 (cursor t)) ("bad" "none" "good" "bad")))
+   passed  12/16  launcher-gui-tool-errors-kill-and-reentry (7.900513 sec)
+Minibuffer outcomes (returned quit returned quit) states ((t (nil " *Minibuf-1*" "Dictionary — Word: " "" "" nil) (nil " *Minibuf-1*" "Launch: " "d" "" nil) (nil " *Minibuf-1*" "Launch: " "d" "" nil) (nil "*launcher GUI definition*" nil nil nil ("word"))) (nil (nil " *Minibuf-1*" "Dictionary — Word: " "" "" nil) (nil " *Minibuf-1*" "Launch: " "d" "" nil) (nil " *Minibuf-1*" "Launch: " "d" "" nil) (nil "*launcher GUI definition*" nil nil nil ("word"))))
+   passed  13/16  launcher-gui-tool-minibuffer-flow (6.769249 sec)
+Paste states: ((query " *Minibuf-1*" "Dictionary — Word: " "中文 café  two words" "" nil) (result "*launcher GUI definition*" nil nil nil ("中文 café  two words")) (query " *Minibuf-1*" "Dictionary — Word: " "recalled" "" ("中文 café  two words")) (query " *Minibuf-1*" "Dictionary — Word: " "" #(" [Type a query first]" 0 1 (cursor t)) ("中文 café  two words")) (query " *Minibuf-1*" "Dictionary — Word: " "   " #(" [Type a query first]" 0 1 (cursor t)) ("中文 café  two words")))
+   passed  14/16  launcher-gui-tool-paste-history-and-blank (2.749371 sec)
+   passed  15/16  launcher-gui-tool-preexisting-result-and-other-window (1.374180 sec)
+Launcher apps unavailable: Cannot find ‘mdfind‘ in PATH [2 times]
+No-app states: (("Launch (apps unavailable): " "Launch (apps unavailable): ") ("Launch (apps unavailable): " "Launch (apps unavailable): "))
+   passed  16/16  launcher-gui-tool-without-apps (2.599477 sec)
+
+Ran 16 tests, 16 results as expected, 0 unexpected (2026-10-06 01:31:47-0700, 63.779331 sec)
+
