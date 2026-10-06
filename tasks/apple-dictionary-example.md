@@ -158,14 +158,14 @@ MELPA builds from this branch), pinned by SHA-256 in `test/elpa.sh`.
   build requirements, errors and the helper's reporting limit, the tested
   private interface) and the development commands.
 - Tests:
-  - `test/launcher-osx-dictionary-tests.el`, 12 batch checks. The pinned
+  - `test/launcher-osx-dictionary-tests.el`, 13 batch checks. The pinned
     package does the rendering; a fake helper script stands in for the
     native one, logging its arguments: not a native lookup. Covered: loading
     alone (subprocess: no package loaded, no tool registered, then the
     missing-package error), platform, blank, incompatible interface, one
     exact trimmed query, no display or window change, mode, read-only,
     `visual-line-mode`, header line, heading face, bullet prefixes and
-    cleanup, multiword/Unicode and `-d` pass-through, reuse, a failed lookup
+    cleanup, multiword/Unicode and `-d` pass-through, a relative search log kept in the caller's directory, reuse, a failed lookup
     keeping the previous result, the package's own session untouched, each
     empty-result cause, each build failure (with a real clang on a broken
     source, on the host), the keys with and without an interaction, the
@@ -183,8 +183,8 @@ Verification:
 
 | Check | Result |
 | --- | --- |
-| `emacs --batch -Q -L . -L test -l test/launcher-tests.el -l test/launcher-buffer-tests.el -l test/launcher-tools-tests.el -l test/launcher-osx-dictionary-tests.el -f ert-run-tests-batch-and-exit` (host, after `sh test/elpa.sh`) | 60/60 passed: 48 earlier, unchanged, and 12 new |
-| The same in a copy without `.cache/elpa` | 50 passed, the 10 package checks skipped |
+| `emacs --batch -Q -L . -L test -l test/launcher-tests.el -l test/launcher-buffer-tests.el -l test/launcher-tools-tests.el -l test/launcher-osx-dictionary-tests.el -f ert-run-tests-batch-and-exit` (host, after `sh test/elpa.sh`) | 61/61 passed: 48 earlier, unchanged, and 13 new |
+| The same in a copy without `.cache/elpa` | 50 passed, the 11 package checks skipped |
 | `emacs --batch -Q -L . -L test … --eval '(setq byte-compile-error-on-warn t)' -f batch-byte-compile` of the three package files and the batch and GUI test files | no warnings |
 | `git diff --check` | clean |
 | Host real smoke: batch `-Q`, a scratch copy of the pinned package, `launcher-osx-dictionary-lookup` of ` hello `, `qwxzv`, `café` | helper built; definitions of "hello" and "cafe" in `osx-dictionary-mode`; `No definition for "qwxzv" (searched: All active dictionaries)` |

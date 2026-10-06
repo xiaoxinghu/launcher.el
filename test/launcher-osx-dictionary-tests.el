@@ -206,6 +206,27 @@ hello | fake | noun the sense of hello.
     (should (equal '(("ice cream") ("中文 café") ("-d" "Other Dictionary" "hello"))
                    (launcher-osx-dictionary-test--calls)))))
 
+(ert-deftest launcher-osx-dictionary-relative-search-log ()
+  ;; The package expands its search log against `default-directory':
+  ;; the caller's, not the package's, which may be read-only.
+  (launcher-osx-dictionary-test--with
+    (let* ((caller (file-name-as-directory (make-temp-file "launcher-osx-dictionary-caller" t)))
+           (default-directory caller)
+           (osx-dictionary-search-log-file "lookups.log"))
+      (unwind-protect
+          (progn
+            (set-file-modes osx-dictionary--load-dir #o555)
+            (launcher-osx-dictionary-lookup "hello")
+            (should (equal "hello\n" (with-temp-buffer
+                                       (insert-file-contents
+                                        (expand-file-name "lookups.log" caller))
+                                       (buffer-string))))
+            (should-not (file-exists-p (expand-file-name "lookups.log"
+                                                         osx-dictionary--load-dir)))
+            (should (equal caller default-directory)))
+        (set-file-modes osx-dictionary--load-dir #o755)
+        (delete-directory caller t)))))
+
 (ert-deftest launcher-osx-dictionary-results-are-independent ()
   ;; The package's own session and other buffers stay as they were; a
   ;; failed lookup leaves the previous result.

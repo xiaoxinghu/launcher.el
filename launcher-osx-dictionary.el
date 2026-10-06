@@ -34,6 +34,7 @@
 (defvar osx-dictionary--load-dir)
 (defvar osx-dictionary--current-word)
 (defvar osx-dictionary-current-dictionary)
+(defvar osx-dictionary-search-log-file)
 (declare-function osx-dictionary-mode "osx-dictionary" ())
 (declare-function osx-dictionary--insert-search-result "osx-dictionary" (word))
 (declare-function osx-dictionary--current-dictionary-description "osx-dictionary" ())
@@ -189,8 +190,11 @@ does the lookup."
       (error "Nothing to look up"))
     (launcher-osx-dictionary--require)
     ;; The package runs its helper through a shell in this directory,
-    ;; which must be local.
-    (let ((default-directory (file-name-as-directory osx-dictionary--load-dir)))
+    ;; which must be local.  A relative search log stays the caller's.
+    (let* ((osx-dictionary-search-log-file
+            (and osx-dictionary-search-log-file
+                 (expand-file-name osx-dictionary-search-log-file)))
+           (default-directory (file-name-as-directory osx-dictionary--load-dir)))
       (launcher-osx-dictionary--render word (launcher-osx-dictionary--search word)))))
 
 (defun launcher-osx-dictionary-quit ()
