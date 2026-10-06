@@ -31,7 +31,7 @@ bindings and completion UIs such as Vertico are preserved.
 ** Full-buffer launcher
 
 ~launcher-buffer~ offers exactly the choices of ~launcher~ (apps, bangs,
-web fallback, empty-input cancellation), with Vertico showing the prompt
+web fallback, empty-input cancellation, [[*Tools][tools]]), with Vertico showing the prompt
 and candidates at the top of the selected ordinary window.  ~C-u~ also
 rebuilds the index first.  It needs Emacs 29.1 and Vertico 2.x (tested with
 2.15) with ~vertico-mode~ enabled.  Loading launcher does not load Vertico;
@@ -50,9 +50,10 @@ The command owns its interaction until a choice succeeds or you quit:
   starts, or as many as a shorter window fits; moving the selection scrolls
   through the rest.
 - Escape or ~C-g~ quits from any view, signaling ~quit~ as ~launcher~ does.
-  Later views, such as results, replace the picker in the same window;
-  ~C-c C-b~ (~launcher-back~) returns to the previous view.  These keys live
-  in ~launcher-buffer-picker-map~, added to Vertico's keys in the picker, and
+  Later views, a tool's query and its result, replace the picker in the
+  same window; ~C-c C-b~ (~launcher-back~) returns to the previous view.
+  These keys live in ~launcher-buffer-picker-map~, added to Vertico's keys
+  in the picker and to ~launcher-query-map~ in a query, and
   ~launcher-buffer-map~, active in a result view only while its window is
   selected.  A result keeps its own mode and keys.  Both keymaps are in
   launcher-buffer.el, loaded on first use: change them in
@@ -70,17 +71,83 @@ It works in any ordinary window, with or without a host.  For example, with
 Portal: ~(portal-launcher-present #'launcher-buffer :kind 'buffer :mode-line nil)~.
 Sizing a host's window to its content is up to the host.
 
+** Tools
+
+~launcher-tools~ (default ~nil~) routes a prefix to a function of your own,
+which looks something up and returns a buffer.  For example, with a
+~my-dictionary-lookup~ you provide:
+
+#+begin_src emacs-lisp
+(setq launcher-tools
+      '(("d" :name "Dictionary" :prompt "Word: "
+              :function my-dictionary-lookup)))
+#+end_src
+
+Typing ~d~ and Space at the start of the input leaves the app list at once
+for a query labelled ~Dictionary — Word:~.  The query is plain text: no
+candidates, no completion and no web search; Space and Unicode are text.
+Return calls the function once with the query, as typed after ~d SPC~, and
+shows the buffer it returns.  Typing calls nothing.  Pasted text and history
+recalled with ~M-p~ route the same way, the rest becoming the query.
+
+- A prefix is any nonempty string without whitespace, such as ~d~, ~dd~ or
+  ~!d~, matched exactly, case included, and only when followed by a Space.
+  So ~d~ alone, ~D word~ or ~dx word~ is app or web input, as before.
+  Prefixes must differ from each other and from the keys of
+  ~launcher-bangs~; both commands check ~launcher-tools~ when they start,
+  and refuse an invalid entry with an error saying what is wrong.
+- The function takes one string and returns a live buffer.  It can be a
+  named, autoloaded or anonymous function.  It does not prompt or display
+  the buffer itself, and any normalization of the query is up to it.  It
+  may keep updating its buffer after returning.
+- A blank query is refused in place.  If the function signals an error,
+  is not defined, or returns anything but a live buffer, the query reports
+  it and keeps its text, so you can correct it and press Return again.
+- In the query, ~C-c C-b~ (~launcher-back~), or deleting backward in an
+  empty query, returns to the picker, which shows the prefix.  In
+  ~launcher-buffer~, ~C-c C-b~ in a result returns to its query, with the
+  text you submitted and without calling the function again.  Escape or
+  ~C-g~ quits from any view.  Customize the query's keys in
+  ~launcher-query-map~.
+- ~launcher~ closes the minibuffer, then shows the result with
+  ~pop-to-buffer~, following your display rules.  ~launcher-buffer~ shows
+  it in its own window, where it keeps its major mode, keys and read-only
+  state; scrolling and copying work as in any buffer.  A result that grows
+  keeps your position, unless point is at the end of a nonempty result:
+  then the window follows the new text.
+- Launcher never kills, erases or changes a result buffer.  Quitting or
+  going back does not stop the function's own work: a buffer it keeps
+  updating does so in the background, and is not shown again.
+- With tools configured, both commands open even when app discovery fails
+  (say, without Spotlight's ~mdfind~): the prompt reads
+  ~Launch (apps unavailable):~ and the reason is in ~*Messages*~.  Without
+  tools, such failures are errors, as before.
+- Each tool keeps its own query history, separate from the picker's, for
+  the session only: routed input never enters the picker's history, and
+  ~savehist-mode~ does not save tool queries.  To keep a tool's history like
+  any other minibuffer history, name a variable with ~:history my-var~; ~:history
+  t~ keeps none.
+- A custom Space binding in the picker is kept; if it does not insert a
+  space, type the prefix by pasting instead.
+
+A host that shows only a minibuffer, such as Portal's ~:kind 'minibuffer~
+panel, has no window to show a result in: ~launcher~ then shows it with
+~pop-to-buffer~ in another frame or window, wherever your display rules
+put it.  Use ~launcher-buffer~ in a buffer panel for results, or bind
+~launcher-tools~ to ~nil~ around ~launcher~ there.
+
 * Development
 
 Run the regression tests without Vertico, launching apps or opening a browser:
 
 #+begin_src sh
 emacs --batch -Q -L . -l test/launcher-tests.el -l test/launcher-buffer-tests.el \
-  -f ert-run-tests-batch-and-exit
+  -l test/launcher-tools-tests.el -f ert-run-tests-batch-and-exit
 #+end_src
 
 Vertico's display needs a graphical Emacs.  ~bash test/vm.sh~ runs the
-graphical checks (~test/gui.sh~) in a disposable Emacs in the macOS test VM
+graphical checks (~test/gui.sh~, which loads ~test/launcher-tools-gui-tests.el~
+and ~test/launcher-buffer-gui-tests.el~) in a disposable Emacs in the macOS test VM
 that Portal's ~test/vm.sh~ uses, without Portal, typing through AppKit's
 event queue.  It fetches pinned Vertico, Orderless and Marginalia releases
 with ~test/elpa.sh~ into ~.cache/elpa~, and copies logs and screenshots back
