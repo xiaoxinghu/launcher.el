@@ -199,6 +199,22 @@ BUFFER keeps its mode and contents, and is never killed by Launcher."
   ;; Views replace the window's buffer; its dedication returns on exit.
   (set-window-dedicated-p (launcher-buffer--session-window session) nil))
 
+(defun launcher-buffer--fallback (session)
+  "Return a buffer to show if SESSION's window lost its original buffer.
+Prefer the window's earlier buffers, then the frame's recent ones, but
+never a view of the interaction or an internal buffer."
+  (let ((shown (launcher-buffer--session-shown session)))
+    (cl-flet ((usable (buffer)
+                (and (buffer-live-p buffer)
+                     (not (memq buffer shown))
+                     (not (string-prefix-p " " (buffer-name buffer))))))
+      (or (seq-find #'usable (mapcar #'car (launcher-buffer--session-prev-buffers
+                                            session)))
+          (seq-find #'usable (buffer-list (window-frame
+                                           (launcher-buffer--session-window
+                                            session))))
+          (get-scratch-buffer-create)))))
+
 (defun launcher-buffer--finish (session)
   "Undo SESSION's changes, restoring its window if it still owns it.
 The interaction stops owning the window when the window is deleted or
@@ -217,13 +233,13 @@ shows a buffer the interaction did not put there."
                      (minibufferp shown)
                      (memq shown (launcher-buffer--session-shown session)))))
       (if (not (buffer-live-p buffer))
-          (switch-to-prev-buffer window)
+          (set-window-buffer window (launcher-buffer--fallback session))
         (set-window-buffer window buffer)
         (set-window-start window start t)
         (set-window-point window point)
-        (set-window-hscroll window (launcher-buffer--session-hscroll session))
-        (set-window-dedicated-p
-         window (launcher-buffer--session-dedicated session)))
+        (set-window-hscroll window (launcher-buffer--session-hscroll session)))
+      (set-window-dedicated-p
+       window (launcher-buffer--session-dedicated session))
       ;; After showing the buffer, which records the view it replaces:
       ;; views do not stay in the window's buffer history.
       (set-window-prev-buffers

@@ -1,17 +1,17 @@
 For information about GNU Emacs and the GNU system, type C-h C-a.
 Environment: GNU Emacs 31.1 (build 1, aarch64-apple-darwin25.6.0, NS appkit-2685.70 Version 26.6.2 (Build 25G83))
  of 2026-09-26; repository a360712c9d272d950d8d8255ef74570f7e90b7d9; 27.0.1; Vertico 2.15; frame 80x36 chars, 597x508 px, font Menlo
-Running 8 tests (2026-10-05 20:53:56-0700, selector ‘"^launcher-gui-"’)
+Running 8 tests (2026-10-05 21:04:20-0700, selector ‘"^launcher-gui-"’)
 launcher-gui--fail: Synthetic result command failed
 Launching Notes
 Cancel outcomes: (quit quit quit quit host (error "Synthetic launch failure") returned)
-   passed  1/8  launcher-gui-cancel-error-kill-and-reenter (4.769013 sec)
-   passed  2/8  launcher-gui-deleted-window-ends (0.609555 sec)
+   passed  1/8  launcher-gui-cancel-error-kill-and-reenter (4.701132 sec)
+   passed  2/8  launcher-gui-deleted-window-ends (0.605873 sec)
 mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm
 Launching Calculator
 Picker states: (("" 6 "!g") ("Cal" 2 "Calculator") ("Calzz" 0 nil) ("" 6 "!g") ("" 6 "Calculator"))
-   passed  3/8  launcher-gui-picker-rows-and-selection (3.024850 sec)
-   passed  4/8  launcher-gui-portal-absent (0.004108 sec)
+   passed  3/8  launcher-gui-picker-rows-and-selection (3.009084 sec)
+   passed  4/8  launcher-gui-portal-absent (0.001405 sec)
 Launching Calculator
 Searching Google for: some words
 Searching GitHub for: portal launcher
@@ -19,14 +19,14 @@ Launching Calculator
 Searching Google for: some words
 Searching GitHub for: portal launcher
 Presentations: ((launcher-buffer ("/Applications/Calculator.app") ("https://github.com/search?q=portal%20launcher" "https://www.google.com/search?q=some%20words")) (launcher ("/Applications/Calculator.app") ("https://github.com/search?q=portal%20launcher" "https://www.google.com/search?q=some%20words"))) ((launcher-buffer t) (launcher nil))
-   passed  5/8  launcher-gui-presentations-agree (11.199096 sec)
+   passed  5/8  launcher-gui-presentations-agree (11.150866 sec)
 Launching Activity Monitor
 Reader states: (("mon" 1 nil t " *Minibuf-1*") ("mon" 1 nil nil " *Minibuf-2*") ("mon" 1 nil t " *Minibuf-1*") ("mon act" 1 nil t " *Minibuf-1*")) nested "beta" file (t t) prompts ("File: " "Nested: " "Launch: ")
-   passed  6/8  launcher-gui-reader-keys-multiform-and-nested (3.193800 sec)
+   passed  6/8  launcher-gui-reader-keys-multiform-and-nested (3.169853 sec)
 Result states: ((result "*launcher GUI result*" launcher-gui-result-mode nil 1) (result "*launcher GUI result*" launcher-gui-result-mode nil 1) (picker " *Minibuf-1*" minibuffer-mode "Ca" 1) (picker " *Minibuf-1*" minibuffer-mode "Cal" 1) (result "*launcher GUI result*" launcher-gui-result-mode nil 1))
-   passed  7/8  launcher-gui-result-back-and-quit (3.110494 sec)
+   passed  7/8  launcher-gui-result-back-and-quit (3.066217 sec)
 Resize states: ((2 4 "!g" t t 3 36) (2 4 "Calendar" t t 3 36) (2 4 "!g" t t 3 36) (6 0 "!g" t t 34 36) (3 3 "!g" t t 4 6) (3 3 "Activity Monitor" t t 4 6) (6 0 "Activity Monitor" t t 34 36))
-   passed  8/8  launcher-gui-small-window-and-host-resize (3.940370 sec)
+   passed  8/8  launcher-gui-small-window-and-host-resize (3.925528 sec)
 
-Ran 8 tests, 8 results as expected, 0 unexpected (2026-10-05 20:54:25-0700, 29.870158 sec)
+Ran 8 tests, 8 results as expected, 0 unexpected (2026-10-05 21:04:49-0700, 29.637305 sec)
 

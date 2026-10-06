@@ -333,6 +333,41 @@ or the error's message."
         (should-not (memq (get-buffer "*launcher test result*")
                           (mapcar #'car (window-prev-buffers))))))))
 
+(ert-deftest launcher-buffer-restores-dedication-after-original-killed ()
+  ;; Killing the window's original buffer during a result view does not
+  ;; leave the window undedicated or showing a launcher view on exit.
+  (dolist (earlier-p '(t nil))
+    (launcher-buffer-test--with-fixture
+      (launcher-buffer-test--with-result-cleanup
+        (let ((window (selected-window))
+              (earlier (generate-new-buffer "*launcher test earlier*"))
+              (result (launcher-buffer-test--result)))
+          (unwind-protect
+              (progn
+                (set-window-prev-buffers
+                 window (and earlier-p
+                             (with-current-buffer earlier
+                               (list (list earlier (point-min-marker)
+                                           (point-min-marker))))))
+                (set-window-dedicated-p window t)
+                (keymap-set (current-global-map) "C-c o"
+                            (lambda () (interactive) (kill-buffer origin)))
+                (should (eq 'quit (launcher-buffer-test--run
+                                   (list (launcher-buffer-test--visit result))
+                                   "C-c o C-g")))
+                (should-not (buffer-live-p origin))
+                (let ((shown (window-buffer window)))
+                  (should (buffer-live-p shown))
+                  (should-not (eq shown result))
+                  (should-not (minibufferp shown))
+                  (should-not (string-prefix-p " " (buffer-name shown)))
+                  (when earlier-p (should (eq earlier shown))))
+                (should (eq t (window-dedicated-p window)))
+                (should-not (memq result (mapcar #'car (window-prev-buffers window)))))
+            (keymap-global-unset "C-c o")
+            (set-window-dedicated-p window nil)
+            (kill-buffer earlier)))))))
+
 (ert-deftest launcher-buffer-killed-result-returns-to-picker ()
   (launcher-buffer-test--with-fixture
     (launcher-buffer-test--with-result-cleanup

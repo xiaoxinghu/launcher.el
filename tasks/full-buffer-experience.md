@@ -148,12 +148,15 @@ Implemented on branch `task/implement-next-todo-under-tasks-c28886e9`, base
   the original buffer, the picker, or a result the interaction displayed);
   views are dropped from its buffer history. A deleted window ends the
   interaction with `quit`; a killed result returns to the previous view.
+  If the original buffer was killed meanwhile, the window shows its newest
+  earlier live buffer (else a recent frame buffer, else `*scratch*`; never a
+  view or internal buffer) and still gets its dedication back.
   Result buffers are never killed, erased or re-moded.
 - Private Vertico internals used are listed and checked in
   `launcher-buffer--vertico-compatible-p`; missing/incompatible Vertico or a
   disabled `vertico-mode` signals a clear `user-error` from this entry point
   only. `launcher` needs no Vertico.
-- Tests: `test/launcher-buffer-tests.el` (16 batch checks with a fake reader
+- Tests: `test/launcher-buffer-tests.el` (17 batch checks with a fake reader
   and real recursive edits) and `test/launcher-buffer-gui-tests.el` (8 graphical
   checks). GUI harness: `test/vm.sh` (Portal-free copy of Portal's VM runner,
   sharing its guest and desktop lock), `test/gui.sh`, `test/native-input.m`
@@ -163,7 +166,7 @@ Verification:
 
 | Check | Result |
 | --- | --- |
-| `emacs --batch -Q -L . -l test/launcher-tests.el -l test/launcher-buffer-tests.el -f ert-run-tests-batch-and-exit` (host) | 25/25 passed: the 9 original input regressions, unchanged, and 16 new |
+| `emacs --batch -Q -L . -l test/launcher-tests.el -l test/launcher-buffer-tests.el -f ert-run-tests-batch-and-exit` (host) | 26/26 passed: the 9 original input regressions, unchanged, and 17 new |
 | `emacs --batch -Q -L . --eval '(setq byte-compile-error-on-warn t)' -f batch-byte-compile launcher.el launcher-buffer.el` | no warnings (also with Vertico on the load path; test files compile cleanly too) |
 | `git diff --check` | clean |
 | `bash test/vm.sh` (runs `sh test/gui.sh` in the VM) | 8/8 passed, none skipped; [log](evidence/launcher-full-buffer/gui-tests.log) |
@@ -203,7 +206,12 @@ Screenshots (VM, actual Emacs drawing surface):
 [back to picker](evidence/launcher-full-buffer/11-back-to-picker.png),
 [nested prompt](evidence/launcher-full-buffer/12-nested-prompt.png).
 
-Not run or not covered: a Portal-hosted smoke test; physical keys, IME and
+Review round 1 fix: dedication is restored even when the original buffer was
+killed during a result view; `launcher-buffer-restores-dedication-after-original-killed`
+fails on the first submission and passes now. The GUI suite was rerun (8/8).
+
+Not run or not covered: Emacs 29.1, the documented minimum (only 31.1 is
+installed on the host and VM); a Portal-hosted smoke test; physical keys, IME and
 VoiceOver; the user's full init (a fixture reproduces its completion setup);
 real app launches and browser opening (stubbed). Batch Emacs exits on a
 command error inside a recursive edit, so result-command errors are checked
