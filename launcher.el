@@ -133,10 +133,10 @@ INPUT must begin with a bang key from `launcher-bangs' followed by a space."
 
 (defun launcher--annotation (candidate)
   "Return a completion annotation for CANDIDATE."
-  (if-let ((bang-entry (seq-find (lambda (e) (equal (car e) candidate))
-                                 launcher-bangs)))
+  (if-let* ((bang-entry (seq-find (lambda (e) (equal (car e) candidate))
+                                  launcher-bangs)))
       (format "  → %s search" (cadr bang-entry))
-    (when-let ((path (cdr (assoc candidate launcher--current-entries))))
+    (when-let* ((path (cdr (assoc candidate launcher--current-entries))))
       (concat "  " (abbreviate-file-name path)))))
 
 (defun launcher--make-collection (entries)
@@ -169,9 +169,11 @@ directly to the matching search engine on Enter."
           ;; Normal mode: complete against bang keys + app names.
           (complete-with-action action (append bang-keys names) string pred))))))
 
-(defun launcher--read-choice (collection)
+(defun launcher--read-choice (collection &optional initial setup)
   "Read from COLLECTION, allowing spaces and cancelling empty queries.
-Keep the user's completion reader and any custom Space binding."
+Keep the user's completion reader and any custom Space binding.
+INITIAL is the initial input.  SETUP, if non-nil, is called with no
+arguments in the new minibuffer, after the reader's own setup."
   (let* ((choice
           (minibuffer-with-setup-hook
               (lambda ()
@@ -179,13 +181,55 @@ Keep the user's completion reader and any custom Space binding."
                   (let ((map (make-sparse-keymap)))
                     (set-keymap-parent map (current-local-map))
                     (define-key map " " #'self-insert-command)
-                    (use-local-map map))))
-            (completing-read "Launch: " collection nil nil)))
+                    (use-local-map map)))
+                (when setup
+                  (funcall setup)))
+            (completing-read "Launch: " collection nil nil initial)))
          (words (split-string choice)))
     (when (or (null words)
               (and (null (cdr words)) (assoc (car words) launcher-bangs)))
       (signal 'quit nil))
     choice))
+
+(defun launcher--entries (refresh)
+  "Return the app entries, rebuilding the index first when REFRESH."
+  (when refresh
+    (launcher-refresh))
+  (or (launcher--ensure-index)
+      (user-error "No apps discovered from Spotlight index")))
+
+(defun launcher--read (entries &optional initial setup)
+  "Read a launcher choice among ENTRIES, with app annotations.
+INITIAL and SETUP are as for `launcher--read-choice'.  Signal `quit'
+for empty input or a bang without a query."
+  (let ((completion-extra-properties
+         '(:annotation-function launcher--annotation)))
+    (unwind-protect
+        (progn
+          (setq launcher--current-entries entries)
+          (launcher--read-choice (launcher--make-collection entries)
+                                 initial setup))
+      (setq launcher--current-entries nil))))
+
+(defun launcher--act (choice entries)
+  "Launch the app CHOICE names among ENTRIES, or search the web for it.
+A bang prefix searches its engine; other unmatched input falls back to
+`launcher-fallback-search-url'."
+  (let ((bang-entry (launcher--bang-for-input choice))
+        (path (cdr (assoc choice entries))))
+    (cond
+     (bang-entry
+      (let ((query (substring choice (1+ (length (car bang-entry))))))
+        (browse-url (format (caddr bang-entry)
+                            (url-hexify-string query)))
+        (message "Searching %s for: %s" (cadr bang-entry) query)))
+     (path
+      (launcher--launch path)
+      (message "Launching %s" choice))
+     (t
+      (browse-url (format launcher-fallback-search-url
+                          (url-hexify-string choice)))
+      (message "Searching Google for: %s" choice)))))
 
 ;;;###autoload
 (defun launcher (&optional refresh)
@@ -195,36 +239,36 @@ Type a bang shortcut followed by a space to search the web directly:
   !g  → Google   !yt → YouTube   !gh → GitHub
 If input does not match any app, search for it on Google.
 Empty input or a bang without a query cancels without launching or searching.
-Space inserts a space in stock completion; Tab still completes."
+Space inserts a space in stock completion; Tab still completes.
+See `launcher-buffer' for the same choices at the top of a window."
   (interactive "P")
-  (when refresh
-    (launcher-refresh))
-  (let* ((entries (launcher--ensure-index))
-         (completion-extra-properties
-          '(:annotation-function launcher--annotation))
-         (collection (launcher--make-collection entries)))
-    (unless entries
-      (user-error "No apps discovered from Spotlight index"))
-    (unwind-protect
-        (progn
-          (setq launcher--current-entries entries)
-          (let* ((choice (launcher--read-choice collection))
-                 (bang-entry (launcher--bang-for-input choice))
-                 (path (cdr (assoc choice entries))))
-            (cond
-             (bang-entry
-              (let ((query (substring choice (1+ (length (car bang-entry))))))
-                (browse-url (format (caddr bang-entry)
-                                    (url-hexify-string query)))
-                (message "Searching %s for: %s" (cadr bang-entry) query)))
-             (path
-              (launcher--launch path)
-              (message "Launching %s" choice))
-             (t
-              (browse-url (format launcher-fallback-search-url
-                                  (url-hexify-string choice)))
-              (message "Searching Google for: %s" choice)))))
-      (setq launcher--current-entries nil))))
+  (let ((entries (launcher--entries refresh)))
+    (launcher--act (launcher--read entries) entries)))
+
+(declare-function launcher-buffer--interact "launcher-buffer" (refresh))
+
+;;;###autoload
+(defun launcher-buffer (&optional refresh)
+  "Launch an app or search the web from the top of the selected window.
+Offer the same choices as `launcher', with Vertico showing the prompt
+and candidates in the selected ordinary window instead of the
+minibuffer.  With prefix argument REFRESH, rebuild the app index first.
+
+Return only when a choice succeeds or the interaction ends.  Escape or
+C-g quits from any view, signaling `quit'.  From a later view, C-c C-b
+\(`launcher-back') returns to the previous one; see `launcher-buffer-map'.
+On exit, the window shows its previous buffer again, unless it shows a
+buffer the interaction did not put there.
+
+The window keeps its size.  The picker shows up to `vertico-count'
+candidates, as bound when this command starts, or as many as a shorter
+window fits; moving the selection scrolls through the rest.
+
+Needs Vertico 2.x, with `vertico-mode' enabled.  The interface is in
+launcher-buffer.el, loaded on first use."
+  (interactive "P")
+  (require 'launcher-buffer)
+  (launcher-buffer--interact refresh))
 
 (provide 'launcher)
 ;;; launcher.el ends here

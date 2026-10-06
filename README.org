@@ -16,6 +16,8 @@ Launch macOS applications from Emacs.
 - ~M-x launcher~ — pick and launch an app
 - ~C-u M-x launcher~ — rebuild index first
 - ~M-x launcher-refresh~ — rebuild index without launching
+- ~M-x launcher-buffer~ — the same choices at the top of the selected
+  window instead of the minibuffer (needs Vertico; see below)
 
 If input matches no app, falls back to a web search (~launcher-fallback-search-url~).
 Use ~!g query~, ~!gh query~, or ~!yt query~ for a specific search engine.
@@ -26,13 +28,63 @@ when no text has been typed.
 In stock completion, Space inserts a space and Tab completes.  Custom Space
 bindings and completion UIs such as Vertico are preserved.
 
+** Full-buffer launcher
+
+~launcher-buffer~ offers exactly the choices of ~launcher~ (apps, bangs,
+web fallback, empty-input cancellation), with Vertico showing the prompt
+and candidates at the top of the selected ordinary window.  ~C-u~ also
+rebuilds the index first.  It needs Emacs 29.1 and Vertico 2.x (tested with
+2.15) with ~vertico-mode~ enabled.  Loading launcher does not load Vertico;
+without a compatible Vertico, only ~launcher-buffer~ signals an error.
+
+#+begin_src emacs-lisp
+(use-package launcher
+  :vc (:url "https://github.com/xiaoxinghu/launcher.el" :rev :newest)
+  :bind ("C-c l" . launcher-buffer))
+#+end_src
+
+The command owns its interaction until a choice succeeds or you quit:
+
+- It runs in the selected window: no split, other frame or resizing.  The
+  picker shows up to ~vertico-count~ candidates, as bound when the command
+  starts, or as many as a shorter window fits; moving the selection scrolls
+  through the rest.
+- Escape or ~C-g~ quits from any view, signaling ~quit~ as ~launcher~ does.
+  Later views, such as results, replace the picker in the same window;
+  ~C-c C-b~ (~launcher-back~) returns to the previous view.  These keys live
+  in ~launcher-buffer-picker-map~, added to Vertico's keys in the picker, and
+  ~launcher-buffer-map~, active in a result view only while its window is
+  selected.  A result keeps its own mode and keys.  Both keymaps are in
+  launcher-buffer.el, loaded on first use: change them in
+  ~(with-eval-after-load 'launcher-buffer ...)~.
+- On exit the window shows its previous buffer again, at the same position,
+  with its dedication and buffer history.  If you put another buffer in the
+  window meanwhile, it stays.  Deleting the window ends the interaction.
+- Your completion styles, annotations, sorting, ~completing-read-function~
+  (which must use Vertico) and Vertico keys apply.  The picker always uses
+  Vertico's buffer display, in its own minibuffer only: other prompts,
+  including ones nested inside the picker, keep your display modes and
+  ~vertico-multiform~ rules.
+
+It works in any ordinary window, with or without a host.  For example, with
+Portal: ~(portal-launcher-present #'launcher-buffer :kind 'buffer :mode-line nil)~.
+Sizing a host's window to its content is up to the host.
+
 * Development
 
-Run the input regression tests without launching apps or opening a browser:
+Run the regression tests without Vertico, launching apps or opening a browser:
 
 #+begin_src sh
-emacs --batch -Q -L . -l test/launcher-tests.el -f ert-run-tests-batch-and-exit
+emacs --batch -Q -L . -l test/launcher-tests.el -l test/launcher-buffer-tests.el \
+  -f ert-run-tests-batch-and-exit
 #+end_src
+
+Vertico's display needs a graphical Emacs.  ~bash test/vm.sh~ runs the
+graphical checks (~test/gui.sh~) in a disposable Emacs in the macOS test VM
+that Portal's ~test/vm.sh~ uses, without Portal, typing through AppKit's
+event queue.  It fetches pinned Vertico, Orderless and Marginalia releases
+with ~test/elpa.sh~ into ~.cache/elpa~, and copies logs and screenshots back
+to ~.cache/vm/~.  Never run these checks in your own Emacs session.
 
 * Works with [[https://github.com/xiaoxinghu/m-x][M-x.app]]
 
