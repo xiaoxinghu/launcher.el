@@ -749,4 +749,5 @@ Return its outcome: `accepted', `quit', or the error's message."
       (set-window-buffer window old)
       (kill-buffer buffer))))
 
+(provide 'launcher-tools-tests)
 ;;; launcher-tools-tests.el ends here

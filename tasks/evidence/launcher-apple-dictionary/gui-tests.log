@@ -1,0 +1,36 @@
+For information about GNU Emacs and the GNU system, type C-h C-a.
+Environment: GNU Emacs 31.1 (build 1, aarch64-apple-darwin25.6.0, NS appkit-2685.70 Version 26.6.2 (Build 25G83))
+ of 2026-09-26; repository a360712c9d272d950d8d8255ef74570f7e90b7d9; 27.0.1; Vertico 2.15; frame 80x36 chars, 597x508 px, font Menlo
+Running 3 tests (2026-10-06 13:50:24-0700, selector ‘"^launcher-dictionary-real-"’)
+Building the osx-dictionary helper...done
+Dictionary failed: No definition for "qwxzv" (searched: All active dictionaries)
+Dictionary states: ((query " *Minibuf-1*" minibuffer-mode "" "" 1 1) (result "*Launcher Dictionary*" osx-dictionary-mode nil nil 1 1) (query " *Minibuf-1*" minibuffer-mode "hello" "" 1 1) (query " *Minibuf-1*" minibuffer-mode "qwxzv" #(" [Dictionary failed: No definition for \"qwxzv\" (searched: All active dictionaries)]" 0 1 (cursor t)) 1 1) (result "*Launcher Dictionary*" osx-dictionary-mode nil nil 1 1) (query " *Minibuf-1*" minibuffer-mode "ice cream" "" 1 1))
+Dictionary results: (("hello" "hello hel·lo | həˈlō, heˈlō | (hallo) (mainly British English hullo) exclamation used as a greeting or to begin a phone conversation: hello there, Katie!.
+• British English used to express surprise: hello, what's all this then?.
+• used as a cry to attract someone's attention: “Hello below!” he cried.
+• expressing sarcasm or anger: Hello! Did you even get what the play was about?. noun (plural hellos) an utterance of “hello”; a greeting: she was getting polite nods and hellos from people. verb (helloes, helloing, helloed) [no object] say or shout “hello”; greet someone: I pressed the phone button and helloed.
+ORIGIN early 19th century: variant of earlier hollo; related to holla.
+") ("ice cream" "ice cream | ˌīs ˈkrēm, ˈīs ˌkrēm | noun a soft frozen food made with sweetened and flavored milk fat.
+• a portion of ice cream, especially as served or sold in a cone-shaped wafer.
+ORIGIN late 17th century: from ice + cream.
+"))
+   passed  1/3  launcher-dictionary-real-buffer-flow (6.785455 sec)
+Dictionary environment: osx-dictionary 655bca5cea78440a1ac41f9cd78711b9c8aff8f3; macOS 27.0.1; GNU Emacs 31.1 (build 1, aarch64-apple-darwin25.6.0, NS appkit-2685.70 Version 26.6.2 (Build 25G83))
+ of 2026-09-26; clang: Apple clang version 21.0.0 (clang-2100.3.34.2); developer tools: /Applications/Xcode.app/Contents/Developer; helper: /var/folders/_2/z_y6mlmd25lb2fzjjw3zqq_00000gn/T/launcher-dictionary-realySgfel/osx-dictionary-cli; restricted to: nil; 87 dictionaries listed, English ones: ("NE Nationalencyklopedin AB Professional English-Swedish / Svensk-Engelska" "Oxford Thesaurus of English" "Stavropoulos Oxford Greek-English Learners Dictionary" "New Oxford American Dictionary" "Oxford PWN Polish-English Dictionary / Wielki słownik polsko-angielski" "Oxford American Writer’s Thesaurus" "Oxford Dictionary of English" "Kamus Dwibahasa Melayu/Inggeris - English/Malay Bilingual Dictionary, Oxford Fajar")
+   passed  2/3  launcher-dictionary-real-environment (0.082307 sec)
+Unicode states: ((query " *Minibuf-1*" minibuffer-mode "café" "" 1 1) (result "*Launcher Dictionary*" osx-dictionary-mode nil nil 1 1) (nil "*Launcher Dictionary*" osx-dictionary-mode nil nil 2 1))
+Unicode results: (("café" "cafe ca·fe | kaˈfā | (also café) noun
+1 a small restaurant selling light meals and drinks.
+2 North American English a bar or nightclub.
+3 (café) a serving of coffee, especially prepared European-style: [in combination] : an assortment of cappuccinos and café mochas.
+ORIGIN early 19th century: from French café ‘coffee or coffee house’.
+") ("hello" "hello hel·lo | həˈlō, heˈlō | (hallo) (mainly British English hullo) exclamation used as a greeting or to begin a phone conversation: hello there, Katie!.
+• British English used to express surprise: hello, what's all this then?.
+• used as a cry to attract someone's attention: “Hello below!” he cried.
+• expressing sarcasm or anger: Hello! Did you even get what the play was about?. noun (plural hellos) an utterance of “hello”; a greeting: she was getting polite nods and hellos from people. verb (helloes, helloing, helloed) [no object] say or shout “hello”; greet someone: I pressed the phone button and helloed.
+ORIGIN early 19th century: variant of earlier hollo; related to holla.
+"))
+   passed  3/3  launcher-dictionary-real-pasted-unicode-and-minibuffer (2.205316 sec)
+
+Ran 3 tests, 3 results as expected, 0 unexpected (2026-10-06 13:50:34-0700, 9.085724 sec)
+
