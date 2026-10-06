@@ -1,6 +1,6 @@
 ---
 id: launcher-full-buffer
-status: todo
+status: done
 ---
 
 # Add a full-buffer launcher that works without Portal
@@ -72,21 +72,21 @@ Read [shared decisions](README.md). Scope is launcher UI, not native panel sizin
 
 ## Acceptance
 
-- [ ] `launcher` still uses the minibuffer and all existing selection, Space,
+- [x] `launcher` still uses the minibuffer and all existing selection, Space,
   empty/bang-only cancellation, URL encoding, fallback, and refresh tests pass.
-- [ ] `launcher-buffer` works in ordinary graphical Emacs with Portal not loaded
+- [x] `launcher-buffer` works in ordinary graphical Emacs with Portal not loaded
   or on the load path. It does not resize/delete the invoking Emacs frame.
-- [ ] App and web behavior is shared; highlighted Return/arrow selection and
+- [x] App and web behavior is shared; highlighted Return/arrow selection and
   multiword input behave consistently in both presentations.
-- [ ] Six→two→zero→six displayed rows work with the caller's row cap; shrinking
+- [x] Six→two→zero→six displayed rows work with the caller's row cap; shrinking
   the host does not permanently reduce that cap or produce redisplay errors.
-- [ ] No empty top buffer, unintended split, global mode-line mutation, leaked
+- [x] No empty top buffer, unintended split, global mode-line mutation, leaked
   minibuffer, or other-frame display. A small window remains usable by scrolling.
-- [ ] Matching/annotations/custom reader and keys survive, including multiform
+- [x] Matching/annotations/custom reader and keys survive, including multiform
   rules outside the launcher. Nested prompt return restores the right view.
-- [ ] The generic result fixture remains interactive in the same ordinary window;
+- [x] The generic result fixture remains interactive in the same ordinary window;
   Back and quit work, and the outer entry point returns only on final exit.
-- [ ] Cancellation/error/buffer-kill/host unwind restores owned state and leaks no
+- [x] Cancellation/error/buffer-kill/host unwind restores owned state and leaks no
   hooks, timers, keymaps, dedicated windows, or recursive edits. Reentry works.
 
 ## Verification and completion record
@@ -104,3 +104,115 @@ runner for graphical checks, not the user's live host Emacs. A Portal-hosted smo
 test is useful additional evidence but not a substitute for standalone behavior.
 Record versions, commands, results, and skipped manual checks here. No live user
 config changes in this task.
+
+### Completion record (2026-10-06)
+
+Implemented on branch `task/implement-next-todo-under-tasks-c28886e9`, base
+`77972eb`.
+
+- `launcher.el`: shared seam `launcher--entries` (refresh + index),
+  `launcher--read` (annotations, Space handling, empty/bang-only cancellation,
+  optional initial input and setup hook) and `launcher--act` (app, bang and
+  fallback dispatch). `launcher` is now those three calls. The autoloaded
+  `launcher-buffer` command is defined here, so `use-package :commands` and
+  package autoloads both work; it loads `launcher-buffer.el` on first use.
+- `launcher-buffer.el`: the interaction. It records the selected window's
+  buffer, start/point markers, hscroll, dedication and buffer history, then
+  runs views (`(picker INPUT)`, `(result BUFFER)`) in that window until a
+  choice succeeds or the user quits. Commands `launcher-back` and
+  `launcher-quit`; keymaps `launcher-buffer-picker-map` (composed over
+  Vertico's keys, picker minibuffer only) and `launcher-buffer-map` (result
+  views, via an `emulation-mode-map-alists` entry whose bindings are filtered
+  to the interaction's selected window, installed only during the
+  interaction). Internal `launcher-buffer--visit` shows a result view; task 2
+  routes tools through it.
+- Vertico: `vertico-buffer-mode` is set *buffer-locally* in the picker's
+  minibuffer (Vertico's display methods dispatch on that value), as are nil
+  values for flat/grid/reverse/unobtrusive/posframe display modes. Nested
+  prompts and other frames keep the user's global modes and multiform rules.
+  `vertico-buffer-hide-prompt` is locally nil, so Vertico never shrinks the
+  real minibuffer window; the duplicate prompt there is scrolled away instead
+  and the echo-area row is kept. A locally non-nil `resize-mini-windows` lets
+  Emacs itself return that window to one line after a long message grew it
+  (with the default `grow-only` it stayed four lines tall in the VM).
+  Vertico's `display-buffer` call is pointed at the interaction's window only
+  during setup, overriding any host action.
+- Row cap: `vertico-count` as bound at invocation. Each redisplay shows
+  `min(cap, rows the window fits)` and re-exhibits at once when that changes.
+  When a window is too short for the cap, blank rows below its bottom keep the
+  candidate list as tall as the cap would make it, so a host that fits its
+  window to content can grow back; a short ordinary window scrolls the
+  selection through the rows that fit. (Window vscroll was tried first and
+  does not work for Vertico's multi-row overlay string.)
+- Exit restores the window only while the interaction still owns it (it shows
+  the original buffer, the picker, or a result the interaction displayed);
+  views are dropped from its buffer history. A deleted window ends the
+  interaction with `quit`; a killed result returns to the previous view.
+  If the original buffer was killed meanwhile, the window shows its newest
+  earlier live buffer (else a recent frame buffer, else `*scratch*`; never a
+  view or internal buffer) and still gets its dedication back.
+  Result buffers are never killed, erased or re-moded.
+- Private Vertico internals used are listed and checked in
+  `launcher-buffer--vertico-compatible-p`; missing/incompatible Vertico or a
+  disabled `vertico-mode` signals a clear `user-error` from this entry point
+  only. `launcher` needs no Vertico.
+- Tests: `test/launcher-buffer-tests.el` (17 batch checks with a fake reader
+  and real recursive edits) and `test/launcher-buffer-gui-tests.el` (8 graphical
+  checks). GUI harness: `test/vm.sh` (Portal-free copy of Portal's VM runner,
+  sharing its guest and desktop lock), `test/gui.sh`, `test/native-input.m`
+  (AppKit key events and drawing capture), `test/elpa.sh` (pinned packages).
+
+Verification:
+
+| Check | Result |
+| --- | --- |
+| `emacs --batch -Q -L . -l test/launcher-tests.el -l test/launcher-buffer-tests.el -f ert-run-tests-batch-and-exit` (host) | 26/26 passed: the 9 original input regressions, unchanged, and 17 new |
+| `emacs --batch -Q -L . --eval '(setq byte-compile-error-on-warn t)' -f batch-byte-compile launcher.el launcher-buffer.el` | no warnings (also with Vertico on the load path; test files compile cleanly too) |
+| `git diff --check` | clean |
+| `bash test/vm.sh` (runs `sh test/gui.sh` in the VM) | 8/8 passed, none skipped; [log](evidence/launcher-full-buffer/gui-tests.log) |
+
+GUI environment: macOS 27.0.1 test VM, GNU Emacs 31.1 NS (emacs-plus, built
+2026-09-26, repository `a360712c9d272d950d8d8255ef74570f7e90b7d9`, as Portal
+pins), `-Q`, no Portal on the load path, Menlo, 80×36 frame, 2× screenshots.
+Vertico 2.15, Orderless 1.8 and Marginalia 2.13 from GitHub release tags with
+SHA-256 pins. The user's installed Vertico snapshot `20260830.123` has the same
+`vertico-buffer.el`; its `vertico.el` differs only in require-match validation.
+
+The graphical checks type through AppKit's event queue (C-g through Emacs's
+event queue: this build holds synthetic AppKit C-g). They cover: Portal absent;
+a one-line minibuffer window after a long message; 6→2→0→6 rows with cap 6 and arrow/Return selection; identical results from
+both entry points for arrow selection, multiword fallback and a bang query,
+with `launcher` reading in the minibuffer; a 3-line window, window regrowth,
+a 6-line frame and regrowth (rows 2, 6, 3, 6; selection always visible; no
+redisplay errors); orderless, Marginalia, a custom `completing-read-function`,
+vertico-directory RET/DEL, a multiform grid rule for the launcher overridden
+locally, a nested prompt with its own multiform rule and return to the picker,
+and a file prompt still using its grid rule afterwards; a synthetic
+`special-mode` result with its own keys and a timer appending to it, Back with
+input restored, Escape, and late updates not touching windows; Escape/C-g in
+picker and result, a failing result command, killing the result, a host's
+throw, a failing launch, a deleted window, and reentry. Each interaction
+check verifies afterwards: frame list, size and position, window buffer/start/point/
+dedication, default mode line, minibuffer hooks, `post-command-hook`,
+`emulation-mode-map-alists`, recursion depth, minibuffer scroll and timers.
+
+Screenshots (VM, actual Emacs drawing surface):
+[picker](evidence/launcher-full-buffer/01-picker.png),
+[filtered](evidence/launcher-full-buffer/02-filtered.png),
+[no match](evidence/launcher-full-buffer/03-no-match.png),
+[3-line window, scrolled selection](evidence/launcher-full-buffer/07-small-window-scrolled.png),
+[6-line frame](evidence/launcher-full-buffer/08-shrunk-frame.png),
+[result](evidence/launcher-full-buffer/10-result.png),
+[back to picker](evidence/launcher-full-buffer/11-back-to-picker.png),
+[nested prompt](evidence/launcher-full-buffer/12-nested-prompt.png).
+
+Review round 1 fix: dedication is restored even when the original buffer was
+killed during a result view; `launcher-buffer-restores-dedication-after-original-killed`
+fails on the first submission and passes now. The GUI suite was rerun (8/8).
+
+Not run or not covered: Emacs 29.1, the documented minimum (only 31.1 is
+installed on the host and VM); a Portal-hosted smoke test; physical keys, IME and
+VoiceOver; the user's full init (a fixture reproduces its completion setup);
+real app launches and browser opening (stubbed). Batch Emacs exits on a
+command error inside a recursive edit, so result-command errors are checked
+graphically only. No user configuration was changed.
