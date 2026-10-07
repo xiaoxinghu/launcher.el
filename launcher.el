@@ -9,6 +9,9 @@
   "Launch macOS applications from Emacs."
   :group 'external)
 
+;; After the group, which its options belong to.
+(require 'launcher-icons)
+
 (defcustom launcher-mdfind-query
   "kMDItemContentTypeTree == \"com.apple.application-bundle\""
   "Spotlight query used to discover application bundles."
@@ -149,6 +152,9 @@ When DUPLICATE-P is non-nil, include path context."
   (interactive)
   (setq launcher--apps
         (launcher--build-entries (launcher--collect-paths)))
+  (condition-case err
+      (launcher-icons-index-refreshed (mapcar #'cdr launcher--apps))
+    (error (message "Launcher icons not refreshed: %s" (error-message-string err))))
   (message "Indexed %d applications" (length launcher--apps)))
 
 (defun launcher--ensure-index ()
@@ -358,15 +364,39 @@ is as for `launcher--read-query'."
     (when-let* ((path (cdr (assoc candidate launcher--current-entries))))
       (concat "  " (abbreviate-file-name path)))))
 
-(defun launcher--make-collection (entries &optional tools)
+(defun launcher--affixation (candidates)
+  "Return CANDIDATES, in order, as (CANDIDATE PREFIX SUFFIX) lists.
+PREFIX shows an app's icon, or blank space as wide for a bang or an app
+whose icon is not made yet.  SUFFIX is the annotation, or \"\"."
+  (mapcar (lambda (candidate)
+            (list candidate
+                  (launcher-icons-prefix (cdr (assoc candidate launcher--current-entries)))
+                  (or (launcher--annotation candidate) "")))
+          candidates))
+
+(defun launcher--completion-properties (entries)
+  "Return `completion-extra-properties' for choosing among ENTRIES.
+With icons in the selected frame, start making the icons ENTRIES miss,
+and return an affixation function showing them."
+  (if (and entries (launcher-icons-enabled-p))
+      (progn
+        (condition-case err
+            (launcher-icons-prepare (mapcar #'cdr entries))
+          (error (message "Launcher icons unavailable: %s" (error-message-string err))))
+        '(:affixation-function launcher--affixation))
+    '(:annotation-function launcher--annotation)))
+
+(defun launcher--make-collection (entries &optional tools category)
   "Return a dynamic completion collection for ENTRIES with bang support.
 In normal mode completes against app names and bang shortcut keys.
 Once the input is BANG SPACE (e.g. \"!g \"), enters bang mode: the
 candidate list is cleared and any query typed after the space is passed
 directly to the matching search engine on Enter.  Input routed to one
-of TOOLS has no candidates either."
+of TOOLS has no candidates either.  With CATEGORY, the collection's
+metadata names that completion category."
   (let ((names (mapcar #'car entries))
-        (bang-keys (mapcar #'car launcher-bangs)))
+        (bang-keys (mapcar #'car launcher-bangs))
+        (metadata (if category `(metadata (category . ,category)) '(metadata))))
     (lambda (string pred action)
       ;; Read the real minibuffer contents rather than the `string' argument:
       ;; completion frameworks like vertico+orderless call the collection with
@@ -382,13 +412,15 @@ of TOOLS has no candidates either."
         (if in-bang-mode
             ;; Bang mode: no candidates, accept any input as-is.
             (cond
-             ((eq action 'metadata) '(metadata))
+             ((eq action 'metadata) metadata)
              ((consp action) nil)           ; (boundaries . suffix)
              ((eq action nil) nil)          ; try-completion: nothing to complete
              ((eq action t) '())            ; all-completions: empty list
              ((eq action 'lambda) t))       ; test-completion: always valid
           ;; Normal mode: complete against bang keys + app names.
-          (complete-with-action action (append bang-keys names) string pred))))))
+          (if (eq action 'metadata)
+              metadata
+            (complete-with-action action (append bang-keys names) string pred)))))))
 
 (defun launcher--read-choice (prompt collection tools &optional initial setup)
   "Read with PROMPT from COLLECTION, allowing spaces and cancelling empty queries.
@@ -449,13 +481,16 @@ TOOLS: then report the problem and return nil, keeping them reachable."
 INITIAL and SETUP are as for `launcher--read-choice'.  Signal `quit'
 for empty input or a bang without a query.  Without ENTRIES, the
 prompt says that apps are unavailable."
-  (let ((completion-extra-properties
-         '(:annotation-function launcher--annotation)))
+  (let* ((completion-extra-properties (launcher--completion-properties entries))
+         ;; Its own category keeps add-ons such as nerd-icons-completion
+         ;; from adding a generic icon of uncategorized candidates.
+         (category (and (plist-get completion-extra-properties :affixation-function)
+                        'launcher-app)))
     (unwind-protect
         (progn
           (setq launcher--current-entries entries)
           (launcher--read-choice (if entries "Launch: " "Launch (apps unavailable): ")
-                                 (launcher--make-collection entries tools)
+                                 (launcher--make-collection entries tools category)
                                  tools initial setup))
       (setq launcher--current-entries nil))))
 

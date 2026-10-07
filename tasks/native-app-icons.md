@@ -1,6 +1,6 @@
 ---
 id: launcher-native-app-icons
-status: todo
+status: done
 depends_on: []
 ---
 
@@ -274,33 +274,33 @@ This generation check also applies to callbacks/queued notifications, not only P
 
 ## Acceptance and verification
 
-- [ ] Existing input/launch/search tests pass unchanged in meaning.
-- [ ] List shows actual installed app icons, not generic font glyphs; duplicate
+- [x] Existing input/launch/search tests pass unchanged in meaning.
+- [x] List shows actual installed app icons, not generic font glyphs; duplicate
   names, Unicode, spaces, apostrophes, and shell metacharacters in paths work.
-- [ ] Resolution tests cover bucket edges and 1×/2× budgets. List warm-up produces
+- [x] Resolution tests cover bucket edges and 1×/2× budgets. List warm-up produces
   only 64px assets; requesting a preview lazily produces 256/512px as appropriate.
-- [ ] Same app at small/large sizes shares freshness/generation state, not a
+- [x] Same app at small/large sizes shares freshness/generation state, not a
   separately implemented cache. Larger PNGs are rendered from native source data.
-- [ ] A disk hit survives a fresh Emacs process without unnecessary extraction;
+- [x] A disk hit survives a fresh Emacs process without unnecessary extraction;
   fresh repeated lookups spawn no workers. Typing never waits for external work.
-- [ ] Fingerprint tests cover unchanged metadata, bundle replacement, version
+- [x] Fingerprint tests cover unchanged metadata, bundle replacement, version
   change, icon/Assets.car mtime/size change, missing-to-present resource, and nested
   icon update without top-level bundle timestamp change. No whole-app hashing.
-- [ ] All resolutions and memory/negative caches invalidate together. Check
+- [x] All resolutions and memory/negative caches invalidate together. Check
   throttling uses a fake clock; explicit refresh bypasses it; manual reset works
   despite unchanged source metadata.
-- [ ] Delayed results after update/reset/removal, malformed/partial JSON, corrupt
+- [x] Delayed results after update/reset/removal, malformed/partial JSON, corrupt
   PNGs, worker failure/timeout, unwritable cache, and per-app extraction failure
   cannot break the launcher or publish an obsolete generation. Remaining apps work.
-- [ ] Cache cleanup never deletes arbitrary files, another process's live staging
+- [x] Cache cleanup never deletes arbitrary files, another process's live staging
   directory, or valid entries merely because discovery failed.
-- [ ] No worker launched by terminal/disabled/unsupported-image display. No leaked
+- [x] No worker launched by terminal/disabled/unsupported-image display. No leaked
   UI hooks or recurring polling timers after quit/error; cache-only work may finish
   without focusing or reopening a buffer.
-- [ ] Graphical stock completion and Vertico render aligned, selected-row-safe
+- [x] Graphical stock completion and Vertico render aligned, selected-row-safe
   small icons. A separate buffer displays the same app at 128 and 256 logical pixels
   without unintended row inflation or visibly unnecessary upscaling on Retina.
-- [ ] Missing/incompatible completion add-ons do not prevent package loading;
+- [x] Missing/incompatible completion add-ons do not prevent package loading;
   Marginalia/nerd-icons coexistence is tested or explicitly recorded as unverified.
 
 Run existing and new ERT tests, byte-compile changed Lisp, and check whitespace:
@@ -326,4 +326,114 @@ backing scale, screenshots/commands, results, and skipped checks here before set
 
 ## Completion record
 
-Not implemented. Populate with actual verification evidence on completion.
+Implemented on branch `task/native-app-icons` from `df56bcd`, verified 2026-10-07.
+A first implementation followed the plan above in full (about 2,800 lines,
+with generations, epochs, a JSON protocol and 256/512 px tiers). Review
+judged most of it out of proportion to a 20 px list icon, and it was
+replaced by the design below.
+
+### What shipped
+
+- `launcher-icons.el` (~180 lines): `launcher-show-icons`, `launcher-icon-size`,
+  `launcher-icon-cache-directory`, `launcher-icons-prepare`,
+  `launcher-icons-prefix`, `launcher-icons-index-refreshed` and autoloaded
+  `launcher-clear-icon-cache`.
+- `assets/launcher-icons.js` (~45 lines): `osascript -l JavaScript launcher-icons.js
+  PIXELS APP PNG [APP PNG]...` draws each app's `NSWorkspace iconForFile:` into a
+  PNG written atomically, and prints one line per failed app.
+- `launcher.el`: requires the module after `defgroup`, calls
+  `launcher-icons-index-refreshed` after a successful `launcher-refresh` (errors
+  only messaged), and `launcher--completion-properties` / `launcher--affixation`.
+  With icons on, the completion category is `launcher-app`, so
+  nerd-icons-completion adds no generic glyph (found by the coexistence test).
+- Tests: `test/launcher-icons-tests.el` (15, fake worker, no macOS needed),
+  `test/launcher-icons-worker-tests.el` (4, macOS only, real worker),
+  `test/launcher-icons-gui-tests.el` (3, VM), `test/png-stats.js`.
+  `test/elpa.sh` pins nerd-icons.el `17faac7` and nerd-icons-completion `f924dd4`.
+
+### Design
+
+- One raster: 64×64 PNGs, sharp up to 32 logical pixels at 2×. Image specs use
+  `:width`/`:height` of `launcher-icon-size` and `:scale 1`.
+- A PNG is named `sha1(pixels, app path, Info.plist mtime)` (the bundle's mtime
+  without an Info.plist). An updated app gets a new name, so there is no
+  fingerprint, metadata file, generation or stale-result check: a late worker
+  result writes the right file under the right name.
+- PNGs live in `<launcher-icon-cache-directory>/v1/`, which only the launcher
+  writes, so a customized, shared cache directory keeps its own files.
+- Each launcher start stats every indexed app once (`launcher-icons-prepare`) and
+  starts one background worker for all missing PNGs, unless one runs. A worker
+  older than 60 s is stopped at the next start, whether or not that start finds
+  new work, and its icons are asked for again. Rows check `file-exists-p`, so
+  icons appear on the next redraw as the worker writes them.
+- A PNG a worker failed to make is not asked for again in this Emacs until the
+  index is refreshed, so a failing app does not start a worker on every launcher.
+  A request is recorded only once the worker started. When the worker exits,
+  requests for PNGs it made are forgotten, so a PNG deleted later (as by another
+  Emacs sharing the cache) is made again; if it did not finish normally (crashed
+  or killed), all its requests are forgotten.
+- `launcher-refresh` deletes PNGs of apps no longer indexed (none if the index is
+  empty). `launcher-clear-icon-cache` stops the worker and deletes only files
+  matching the PNG name pattern, flushing each from Emacs's image cache.
+
+### Dropped from the plan
+
+- 256/512 px tiers, `launcher--icon` at arbitrary sizes, and
+  `launcher-icon-updated-hook`: no planned view uses them.
+- `launcher-icon-check-interval` and throttled freshness checks: a stat per app
+  per launcher start replaces them.
+- Fingerprints of `CFBundleIconFile`, `Assets.car`, versions and inodes, and
+  detection of changes during drawing. An icon change that leaves Info.plist's
+  mtime alone goes unnoticed until `launcher-clear-icon-cache`.
+- Manifest, JSON Lines protocol, per-request validation, batch limit, priority
+  queues, negative-cache deadlines, cross-process job sweeping.
+
+### Verification
+
+Host: macOS 27.0.1 (26A434), Emacs 31.1 (Homebrew CLI, batch).
+
+```sh
+sh test/elpa.sh
+emacs --batch -Q -L . -L test -l test/launcher-tests.el -l test/launcher-buffer-tests.el \
+  -l test/launcher-tools-tests.el -l test/launcher-osx-dictionary-tests.el \
+  -l test/launcher-icons-tests.el -l test/launcher-icons-worker-tests.el \
+  -f ert-run-tests-batch-and-exit        # 80 tests, 80 as expected
+emacs --batch -Q -L . -f batch-byte-compile launcher-icons.el launcher.el \
+  launcher-buffer.el launcher-osx-dictionary.el   # no warnings
+git diff --check                          # clean
+```
+
+Real worker (host): Calculator and Notes at 64 px in 0.096 s; 64×64 PNGs, 65 %
+of sampled pixels opaque, 66 and 38 quantized colors, different from each other.
+A missing app between real ones printed `…: no such application` and the others
+were written. A fake bundle named `It's $(touch pwned) \`touch pwned2\` ; "q" 名前 é.app`
+rendered and created no file. All 503 apps indexed on the host: one worker,
+503 PNGs, 3.6 MB, 5.9 s. These are single local measurements.
+
+GUI, in the VM (`bash test/vm.sh sh test/gui.sh`, Emacs 31.1 NS build, macOS
+27.0.1, Vertico 2.15, Orderless 1.8, Marginalia 2.13, `emacs -Q`, no Portal,
+backing scale 2.0, default line height 14 px, temporary icon cache): all 19
+graphical checks pass (run `launcher.MPmJ11Z3`), including the 3 icon checks:
+
+- Vertico + Marginalia: one native icon per app row, none on bang rows, equal
+  prefix widths (27 px), candidate rows all 20 px, selected row highlighted; two
+  apps named Notes have distinct icons; Return launched the selected fake Notes.
+- Stock completion (`*Completions*`, one column): one icon per row for 5 apps.
+- `launcher-buffer`: one icon per row.
+
+Screenshots (git-ignored, `.cache/vm/launcher.MPmJ11Z3/screenshots/`):
+`icons-vertico.png`, `icons-vertico-notes.png`, `icons-stock-completion.png`,
+`icons-launcher-buffer.png`. Inspected visually: sharp icons, aligned names.
+
+The shared GUI fixture binds `launcher-show-icons` to nil: its fake `/Applications`
+paths have no icons, and it asserts that no `launcher-*` timer outlives a check.
+
+### Not verified
+
+- A 1× (non-Retina) display.
+- nerd-icons-completion in a graphical frame: coexistence is tested in batch
+  (Marginalia + nerd-icons-completion modes on, real advice), not on screen.
+- Two Emacs processes sharing a cache (content-addressed names and atomic
+  writes make this benign by construction; not tested).
+- Appearance (light/dark) dependent icons.
+- The user's own Emacs, theme and fonts: no live configuration was touched.
