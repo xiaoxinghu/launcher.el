@@ -401,34 +401,36 @@ the last candidate, which a panel at its legal height leaves out."
   (launcher-portal--with
     (portal-global-shortcut-set 'app-launcher "Control-Option-Command-F17" #'my/app-launcher)
     (let ((cases
-           `((escape-picker returned escape)
-             (quit-picker returned quit)
-             (quit-query returned "d " quit)
-             (escape-result returned "d hello" return escape)
-             (quit-result returned "d hello" return quit)
-             (back-to-picker returned "d hello" return C-c C-b C-c C-b ,(launcher-portal--snap) escape)
+           `((escape-picker escape)
+             (quit-picker quit)
+             (quit-query "d " quit)
+             (escape-result "d hello" return escape)
+             (quit-result "d hello" return quit)
+             (back-to-picker "d hello" return C-c C-b C-c C-b ,(launcher-portal--snap) escape)
              ;; The error shows until the next key, so a timer records it.
-             (error returned "e boom" return wait wait wait
+             (error "e boom" return wait wait wait
                     (:now ,(launcher-portal--snap "76-panel-error")) escape)
-             (shortcut nil "d hello" return
+             (shortcut "d hello" return
                        ,(lambda () (portal-launcher-gui--press 'app-launcher)))
-             (focus-away nil "d hello" return
+             (focus-away "d hello" return
                          ,(lambda ()
                             (portal-view--with-frame-title (window-frame ordinary)
                                                            #'portal-test-native-target-frame)
                             (portal-test-native-focus-target)))
-             (app returned "calc" return)
-             (bang returned "!gh portal launcher" return)
-             (fallback returned "zz top" return)))
+             (app "calc" return)
+             (bang "!gh portal launcher" return)
+             (fallback "zz top" return)))
           outcomes)
-      (pcase-dolist (`(,name ,expected . ,strokes) cases)
+      (pcase-dolist (`(,name . ,strokes) cases)
         (let* ((leaks (launcher-portal--leaks))
                (layouts (launcher-portal--recording
                           (push (list name (launcher-portal--drive 'my/app-launcher strokes))
                                 outcomes))))
           (message "Portal ending %s: %S %S" name (cadar outcomes)
                    (launcher-portal--summary layouts))
-          (when expected (should (eq expected (cadar outcomes))))
+          ;; Portal hides the panel and returns normally however it ends;
+          ;; an error inside the interaction would be (error MESSAGE).
+          (should (eq 'returned (cadar outcomes)))
           (should (equal leaks (launcher-portal--leaks)))
           (should (eq (selected-window) ordinary))
           (pcase name

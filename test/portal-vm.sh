@@ -22,6 +22,11 @@ collect() {
     rsync -a -e 'ssh -o BatchMode=yes' --include=/screenshots/ \
         --include='/screenshots/*.png' --exclude='*' "$vm:$(quote "$run/")" "$logs/" ||
         echo "Could not fetch screenshots; retained at $vm:$run" >&2
+    # As test/vm.sh does, keep a failed run's checkout for inspection.
+    if [[ ${status:-1} == 0 ]]; then
+        "${ssh_vm[@]}" "rm -rf -- $(quote "$run/repo")" ||
+            echo "Could not remove $vm:$run/repo" >&2
+    fi
 }
 trap collect EXIT
 status=0
