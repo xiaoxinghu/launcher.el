@@ -359,9 +359,12 @@ replaced by the design below.
   without an Info.plist). An updated app gets a new name, so there is no
   fingerprint, metadata file, generation or stale-result check: a late worker
   result writes the right file under the right name.
+- PNGs live in `<launcher-icon-cache-directory>/v1/`, which only the launcher
+  writes, so a customized, shared cache directory keeps its own files.
 - Each launcher start stats every indexed app once (`launcher-icons-prepare`) and
   starts one background worker for all missing PNGs, unless one runs. A worker
-  older than 60 s is stopped at the next start. Rows check `file-exists-p`, so
+  older than 60 s is stopped at the next start, whether or not that start finds
+  new work, and its icons are asked for again. Rows check `file-exists-p`, so
   icons appear on the next redraw as the worker writes them.
 - A PNG asked for once is not asked for again in this Emacs until the index is
   refreshed, so a failing app does not start a worker on every launcher.

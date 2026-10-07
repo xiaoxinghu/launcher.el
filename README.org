@@ -47,8 +47,9 @@ or with ~(setq launcher-show-icons nil)~, the list is text only, as before.
 - ~launcher-icon-size~ (default 20) is the list's icon size in logical
   pixels; icons stay sharp up to 32 on a Retina display.  Rows of apps and
   of bangs are as tall as the icon or the line, whichever is taller.
-- Icons are cached as 64-pixel PNGs under ~launcher-icon-cache-directory~
-  (~cache/launcher/icons/~ in your Emacs directory), and survive restarts.
+- Icons are cached as 64-pixel PNGs in the ~v1~ subdirectory of
+  ~launcher-icon-cache-directory~ (~cache/launcher/icons/~ in your Emacs
+  directory), and survive restarts.
   A PNG is named after its app's path and its ~Info.plist~'s modification
   time, so an updated app gets a new icon.  ~C-u M-x launcher~ and
   ~M-x launcher-refresh~ delete the icons of apps that are gone.  An icon

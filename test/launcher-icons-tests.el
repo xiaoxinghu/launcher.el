@@ -60,6 +60,11 @@ Return its path."
       (write-region "png" nil (cadr pairs) nil 'silent)
       (setq pairs (cddr pairs)))))
 
+(defun launcher-icons-test--foreign-png ()
+  "Return a PNG name of another program's, in the configured directory.
+It is named like the launcher's own, as a shared directory may hold."
+  (expand-file-name (concat (make-string 40 ?a) ".png") launcher-icon-cache-directory))
+
 (defun launcher-icons-test--apps-of (command)
   "Return the app paths COMMAND, a worker's, asks icons of."
   (seq-filter (lambda (arg) (string-suffix-p ".app" arg)) (nthcdr 5 command)))
@@ -91,7 +96,8 @@ Return its path."
            (notes (launcher-icons-test--app "Notes.app" 1000))
            (file (launcher-icons--file calc)))
       (should (string-match-p launcher-icons--png-regexp (file-name-nondirectory file)))
-      (should (equal (file-name-directory file) launcher-icon-cache-directory))
+      (should (equal (file-name-directory file) (launcher-icons--directory)))
+      (should (string-prefix-p launcher-icon-cache-directory file))
       (should (equal (launcher-icons--file calc) file))
       (should-not (equal (launcher-icons--file notes) file))
       ;; An updated app gets a new icon.
@@ -132,47 +138,57 @@ Return its path."
                      (list calc))))))
 
 (ert-deftest launcher-icons-a-stuck-worker-is-stopped ()
+  ;; Even when the next launcher finds no icon it has not asked for yet.
   (launcher-icons-test--with-cache
-    (let ((calc (launcher-icons-test--app "Calc.app"))
-          (notes (launcher-icons-test--app "Notes.app")))
+    (let ((calc (launcher-icons-test--app "Calc.app")))
       (launcher-icons-prepare (list calc))
       (let ((stuck launcher-icons--process))
+        (launcher-icons-prepare (list calc))
+        (should (eq launcher-icons--process stuck))
         (process-put stuck 'start (- (float-time) launcher-icons--timeout 1))
-        (launcher-icons-prepare (list calc notes))
+        (launcher-icons-prepare (list calc))
         (should-not (process-live-p stuck))
+        (should (process-live-p launcher-icons--process))
+        ;; Its icons are asked for again.
         (should (equal (launcher-icons-test--apps-of (car launcher-icons-test--spawned))
-                       (list notes)))))))
+                       (list calc)))))))
 
 (ert-deftest launcher-icons-refresh-deletes-only-icons-of-gone-apps ()
   (launcher-icons-test--with-cache
     (let* ((calc (launcher-icons-test--app "Calc.app"))
            (notes (launcher-icons-test--app "Notes.app"))
-           (other (expand-file-name "notes.txt" launcher-icon-cache-directory)))
+           (other (expand-file-name "notes.txt" launcher-icon-cache-directory))
+           (foreign (launcher-icons-test--foreign-png)))
       (launcher-icons-prepare (list calc notes))
       (launcher-icons-test--draw)
       (delete-process launcher-icons--process)
       (write-region "mine" nil other nil 'silent)
+      (write-region "theirs" nil foreign nil 'silent)
       ;; A failed Spotlight query deletes nothing.
       (launcher-icons-index-refreshed nil)
       (should (= (length (launcher-icons--pngs)) 2))
       (launcher-icons-index-refreshed (list calc))
       (should (equal (launcher-icons--pngs) (list (launcher-icons--file calc))))
       (should (file-exists-p other))
+      (should (file-exists-p foreign))
       ;; Icons that failed are tried again.
       (should (= (hash-table-count launcher-icons--requested) 0)))))
 
 (ert-deftest launcher-icons-clear-deletes-only-icons ()
   (launcher-icons-test--with-cache
     (let ((calc (launcher-icons-test--app "Calc.app"))
-          (other (expand-file-name "notes.txt" launcher-icon-cache-directory)))
+          (other (expand-file-name "notes.txt" launcher-icon-cache-directory))
+          (foreign (launcher-icons-test--foreign-png)))
       (launcher-icons-prepare (list calc))
       (launcher-icons-test--draw)
       (write-region "mine" nil other nil 'silent)
+      (write-region "theirs" nil foreign nil 'silent)
       (let ((worker launcher-icons--process))
         (launcher-clear-icon-cache)
         (should-not (process-live-p worker)))
       (should-not (launcher-icons--pngs))
       (should (file-exists-p other))
+      (should (file-exists-p foreign))
       (launcher-icons-prepare (list calc))
       (should (= (length launcher-icons-test--spawned) 2)))))
 

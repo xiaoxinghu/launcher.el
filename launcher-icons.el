@@ -33,7 +33,8 @@ Icons stay sharp up to 32 pixels on a Retina display."
 (defcustom launcher-icon-cache-directory
   (locate-user-emacs-file "cache/launcher/icons/")
   "Directory in which the launcher keeps application icons.
-The launcher deletes only the PNGs it made there."
+The launcher writes only in its \"v1\" subdirectory, and deletes only
+the PNGs it made there."
   :type 'directory
   :group 'launcher)
 
@@ -76,6 +77,10 @@ FRAME defaults to the selected frame."
        (file-executable-p launcher-icons--osascript)
        (file-readable-p launcher-icons--script)))
 
+(defun launcher-icons--directory ()
+  "Return the directory of the launcher's PNGs, which only it writes."
+  (file-name-as-directory (expand-file-name "v1" launcher-icon-cache-directory)))
+
 (defun launcher-icons--file (path)
   "Return the PNG file of the icon of the app at PATH, or nil if it is gone."
   (when-let* ((attributes (or (file-attributes (expand-file-name "Contents/Info.plist" path))
@@ -87,16 +92,27 @@ FRAME defaults to the selected frame."
                                                       attributes)))
                                  'utf-8-unix))
              ".png")
-     launcher-icon-cache-directory)))
+     (launcher-icons--directory))))
 
 (defun launcher-icons--pngs ()
   "Return the PNGs the launcher made."
-  (and (file-directory-p launcher-icon-cache-directory)
-       (directory-files launcher-icon-cache-directory t launcher-icons--png-regexp)))
+  (let ((directory (launcher-icons--directory)))
+    (and (file-directory-p directory)
+         (directory-files directory t launcher-icons--png-regexp))))
+
+(defun launcher-icons--stop-stuck ()
+  "Stop a worker running for longer than `launcher-icons--timeout'.
+The icons it was asked for are asked for again."
+  (when (and (process-live-p launcher-icons--process)
+             (> (- (float-time) (process-get launcher-icons--process 'start))
+                launcher-icons--timeout))
+    (delete-process launcher-icons--process)
+    (clrhash launcher-icons--requested)))
 
 (defun launcher-icons-prepare (paths)
   "Make the missing icons of the apps at PATHS, in the background.
 Call when a launcher with icons starts."
+  (launcher-icons--stop-stuck)
   (clrhash launcher-icons--files)
   (let (missing)
     (dolist (path paths)
@@ -110,12 +126,8 @@ Call when a launcher with icons starts."
 (defun launcher-icons--start (icons)
   "Start a worker making ICONS, a list of (APP-PATH . PNG-FILE).
 If a worker is still running, leave ICONS to a later launcher."
-  (when (and (process-live-p launcher-icons--process)
-             (> (- (float-time) (process-get launcher-icons--process 'start))
-                launcher-icons--timeout))
-    (delete-process launcher-icons--process))
   (unless (process-live-p launcher-icons--process)
-    (make-directory launcher-icon-cache-directory t)
+    (make-directory (launcher-icons--directory) t)
     (dolist (icon icons)
       (puthash (cdr icon) t launcher-icons--requested))
     (let ((default-directory "/")
