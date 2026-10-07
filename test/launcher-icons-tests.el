@@ -17,9 +17,18 @@
   "Commands of the fake worker processes, latest first.")
 
 (defun launcher-icons-test--make-process (&rest args)
-  "Record the command in ARGS, and return a live pipe process."
+  "Record the command in ARGS, and return a live pipe process.
+It keeps the sentinel of ARGS, which `launcher-icons-test--exit' runs."
   (push (plist-get args :command) launcher-icons-test--spawned)
-  (make-pipe-process :name "launcher-icons-test" :noquery t))
+  (let ((process (make-pipe-process :name "launcher-icons-test" :noquery t)))
+    (process-put process 'sentinel (plist-get args :sentinel))
+    process))
+
+(defun launcher-icons-test--exit ()
+  "End the running fake worker, and run its sentinel as Emacs would."
+  (let ((process launcher-icons--process))
+    (delete-process process)
+    (funcall (process-get process 'sentinel) process "finished\n")))
 
 (defmacro launcher-icons-test--with-cache (&rest body)
   "Run BODY with icons enabled, a fake worker, and a temporary
@@ -125,15 +134,40 @@ It is named like the launcher's own, as a shared directory may hold."
       ;; While the worker runs, nothing starts another.
       (launcher-icons-prepare (list calc notes))
       (should (= (length launcher-icons-test--spawned) 1))
-      (launcher-icons-test--draw)
-      (delete-process launcher-icons--process)
-      ;; Made icons, and those already asked for, are not asked for again.
-      (delete-file (launcher-icons--file notes))
+      ;; The worker makes Calc's icon, and fails on Notes'.
+      (write-region "png" nil (launcher-icons--file calc) nil 'silent)
+      (launcher-icons-test--exit)
+      ;; Made icons, and those that failed, are not asked for again.
       (launcher-icons-prepare (list calc notes))
       (should (= (length launcher-icons-test--spawned) 1))
       ;; An updated app is.
       (set-file-times (expand-file-name "Contents/Info.plist" calc) (seconds-to-time 5000))
       (launcher-icons-prepare (list calc notes))
+      (should (equal (launcher-icons-test--apps-of (car launcher-icons-test--spawned))
+                     (list calc))))))
+
+(ert-deftest launcher-icons-a-failed-start-is-retried ()
+  (launcher-icons-test--with-cache
+    (let ((calc (launcher-icons-test--app "Calc.app")))
+      (cl-letf (((symbol-function 'make-process)
+                 (lambda (&rest _) (error "Too many processes"))))
+        (should-error (launcher-icons-prepare (list calc))))
+      (should-not launcher-icons-test--spawned)
+      (launcher-icons-prepare (list calc))
+      (should (equal (launcher-icons-test--apps-of (car launcher-icons-test--spawned))
+                     (list calc))))))
+
+(ert-deftest launcher-icons-a-deleted-icon-is-made-again ()
+  ;; As when another Emacs, sharing the cache, deletes it in a refresh.
+  (launcher-icons-test--with-cache
+    (let ((calc (launcher-icons-test--app "Calc.app"))
+          (broken (launcher-icons-test--app "Broken.app")))
+      (launcher-icons-prepare (list calc broken))
+      ;; The worker makes Calc's icon, and fails on Broken's.
+      (write-region "png" nil (launcher-icons--file calc) nil 'silent)
+      (launcher-icons-test--exit)
+      (delete-file (launcher-icons--file calc))
+      (launcher-icons-prepare (list calc broken))
       (should (equal (launcher-icons-test--apps-of (car launcher-icons-test--spawned))
                      (list calc))))))
 

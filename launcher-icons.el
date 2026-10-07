@@ -60,9 +60,10 @@ the PNGs it made there."
   "PNG files of apps' icons, by app path, as of the launcher's start.")
 
 (defvar launcher-icons--requested (make-hash-table :test #'equal)
-  "PNG files a worker of this Emacs was asked to make.
+  "PNG files a worker of this Emacs was asked to make, and did not.
 An icon that could not be made is not asked for again until its app
-changes or the app index is refreshed.")
+changes or the app index is refreshed.  A PNG that was made, and then
+deleted, as by another Emacs sharing the cache, is made again.")
 
 (defvar launcher-icons--process nil
   "The running worker, or nil.")
@@ -128,8 +129,6 @@ Call when a launcher with icons starts."
 If a worker is still running, leave ICONS to a later launcher."
   (unless (process-live-p launcher-icons--process)
     (make-directory (launcher-icons--directory) t)
-    (dolist (icon icons)
-      (puthash (cdr icon) t launcher-icons--requested))
     (let ((default-directory "/")
           (log (get-buffer-create " *launcher-icons*")))
       (with-current-buffer log (erase-buffer))
@@ -142,8 +141,19 @@ If a worker is still running, leave ICONS to a later launcher."
                                      ,launcher-icons--script
                                      ,(number-to-string launcher-icons--pixels)
                                      ,@(mapcan (lambda (icon) (list (car icon) (cdr icon)))
-                                               icons))))
-      (process-put launcher-icons--process 'start (float-time)))))
+                                               icons))
+                          :sentinel (lambda (process _event)
+                                      (unless (process-live-p process)
+                                        (launcher-icons--forget-made icons)))))
+      (process-put launcher-icons--process 'start (float-time))
+      (dolist (icon icons)
+        (puthash (cdr icon) t launcher-icons--requested)))))
+
+(defun launcher-icons--forget-made (icons)
+  "Forget the requests of ICONS whose PNGs a worker made."
+  (dolist (icon icons)
+    (when (file-exists-p (cdr icon))
+      (remhash (cdr icon) launcher-icons--requested))))
 
 (defun launcher-icons-prefix (app-path)
   "Return the completion prefix showing the icon of the app at APP-PATH.

@@ -346,7 +346,7 @@ replaced by the design below.
   only messaged), and `launcher--completion-properties` / `launcher--affixation`.
   With icons on, the completion category is `launcher-app`, so
   nerd-icons-completion adds no generic glyph (found by the coexistence test).
-- Tests: `test/launcher-icons-tests.el` (12, fake worker, no macOS needed),
+- Tests: `test/launcher-icons-tests.el` (14, fake worker, no macOS needed),
   `test/launcher-icons-worker-tests.el` (4, macOS only, real worker),
   `test/launcher-icons-gui-tests.el` (3, VM), `test/png-stats.js`.
   `test/elpa.sh` pins nerd-icons.el `17faac7` and nerd-icons-completion `f924dd4`.
@@ -366,8 +366,11 @@ replaced by the design below.
   older than 60 s is stopped at the next start, whether or not that start finds
   new work, and its icons are asked for again. Rows check `file-exists-p`, so
   icons appear on the next redraw as the worker writes them.
-- A PNG asked for once is not asked for again in this Emacs until the index is
-  refreshed, so a failing app does not start a worker on every launcher.
+- A PNG a worker failed to make is not asked for again in this Emacs until the
+  index is refreshed, so a failing app does not start a worker on every launcher.
+  A request is recorded only once the worker started, and forgotten when the
+  worker exits having made the PNG, so a PNG deleted later (as by another Emacs
+  sharing the cache) is made again.
 - `launcher-refresh` deletes PNGs of apps no longer indexed (none if the index is
   empty). `launcher-clear-icon-cache` stops the worker and deletes only files
   matching the PNG name pattern, flushing each from Emacs's image cache.
@@ -393,7 +396,7 @@ sh test/elpa.sh
 emacs --batch -Q -L . -L test -l test/launcher-tests.el -l test/launcher-buffer-tests.el \
   -l test/launcher-tools-tests.el -l test/launcher-osx-dictionary-tests.el \
   -l test/launcher-icons-tests.el -l test/launcher-icons-worker-tests.el \
-  -f ert-run-tests-batch-and-exit        # 77 tests, 77 as expected
+  -f ert-run-tests-batch-and-exit        # 79 tests, 79 as expected
 emacs --batch -Q -L . -f batch-byte-compile launcher-icons.el launcher.el \
   launcher-buffer.el launcher-osx-dictionary.el   # no warnings
 git diff --check                          # clean
