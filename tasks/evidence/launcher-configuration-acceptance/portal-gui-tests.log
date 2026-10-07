@@ -1,0 +1,40 @@
+Building the osx-dictionary helper...
+Building the osx-dictionary helper...done
+Environment: GNU Emacs 31.1 (build 1, aarch64-apple-darwin25.6.0, NS appkit-2685.70 Version 26.6.2 (Build 25G83))
+ of 2026-09-26; repository a360712c9d272d950d8d8255ef74570f7e90b7d9; macOS 27.0.1; Portal e8c1d8d742795db9c90c137f730e7307627db515; launcher.el 4a7a408f8d9fea87d5ce6fca23fd54e3686ffeb7; osx-dictionary 655bca5cea78440a1ac41f9cd78711b9c8aff8f3; Vertico 2.15; font Menlo; theme (modus-operandi); first lookup with helper build 0.7s
+Libraries: ("/Users/xiaoxing/portal-test-runs/launcher-portal.p7G4QjjG/repo/launcher.el" "/Users/xiaoxing/portal-test-runs/run.89am0d5i/repo/portal-launcher.el" "/Users/xiaoxing/portal-test-runs/run.89am0d5i/repo/build/elpa/vertico-2.15/vertico.el" nil "/Users/xiaoxing/portal-test-runs/run.89am0d5i/repo/build/elpa/consult-3.10/consult.el")
+Running 4 tests (2026-10-07 02:47:27-0700, selector ‘"^launcher-portal-"’)
+Portal ending escape-picker: returned nil
+Portal ending quit-picker: returned nil
+Portal ending quit-query: returned nil
+Portal ending escape-result: returned nil
+Portal ending quit-result: returned nil
+Portal ending back-to-picker: returned ((nil picker "d" :shown 2 :height 102 :text 54 :body 56 :start 1))
+Failing failed: Cannot look up boom
+Portal ending error: returned (("76-panel-error" query "boom" :shown nil :height 102 :text 14 :body 56 :start 1))
+Portal ending shortcut: returned nil
+Portal ending focus-away: returned nil
+Launching Calculator
+Portal ending app: returned nil
+Searching GitHub for: portal launcher
+Portal ending bang: returned nil
+Searching Google for: zz top
+Portal ending fallback: returned nil
+Portal endings: ((escape-picker returned) (quit-picker returned) (quit-query returned) (escape-result returned) (quit-result returned) (back-to-picker returned) (error returned) (shortcut returned) (focus-away returned) (app returned) (bang returned) (fallback returned))
+   passed  1/4  launcher-portal-endings-and-reentry (17.558417 sec)
+Portal growing result: (("71-panel-short" result "*Launcher Long*" :shown nil :height 116 :text 70 :body 70 :start 1) ("72-panel-capped" result "*Launcher Long*" :shown nil :height 480 :text 840 :body 434 :start 1) ("73-panel-reader" result "*Launcher Long*" :shown nil :height 480 :text 840 :body 434 :start 224) (nil result "*Launcher Long*" :shown nil :height 480 :text 1120 :body 434 :start 224) ("74-panel-shrunk" result "*Launcher Long*" :shown nil :height 102 :text 28 :body 56 :start 1) ("75-panel-regrown" result "*Launcher Long*" :shown nil :height 480 :text 840 :body 434 :start 1))
+   passed  2/4  launcher-portal-growing-result (2.744232 sec)
+Portal picker and dictionary: returned
+Portal picker and dictionary layouts: (("60-panel-picker" picker "" :shown 6 :height 180 :text 134 :body 134 :start 1) ("61-panel-two" picker "cal" :shown 2 :height 102 :text 54 :body 56 :start 1) ("62-panel-none" picker "calzz" :shown 0 :height 102 :text 14 :body 56 :start 1) ("63-panel-six-again" picker "" :shown 6 :height 180 :text 134 :body 134 :start 1) ("64-panel-query" query "" :shown nil :height 102 :text 14 :body 56 :start 1) ("65-panel-hello" result "*Launcher Dictionary*" :shown nil :height 200 :text 126 :body 140 :start 1) ("66-panel-back" query "hello" :shown nil :height 102 :text 14 :body 56 :start 1) ("67-panel-long" result "*Launcher Dictionary*" :shown nil :height 422 :text 3332 :body 362 :start 1) ("68-panel-scrolled" result "*Launcher Dictionary*" :shown nil :height 422 :text 3332 :body 362 :start 2935) ("69-panel-dictionary-q" query "set" :shown nil :height 102 :text 14 :body 56 :start 1) ("70-panel-back-to-picker" picker "d" :shown 2 :height 102 :text 54 :body 56 :start 1))
+Portal copied: #("• [with object] arrange (the hair) while damp so that it dries in the required style: she had set her hair on small rollers.
+• [with object] put parts of (a broken or dislocated bone or limb) into the correct position for healing: he lined up the bones and set the arm.
+" 0 105 (fontified t wrap-prefix "  " line-prefix "  ") 105 124 (fontified t wrap-prefix "  " line-prefix "  ") 124 125 (fontified t) 125 269 (fontified t wrap-prefix "  " line-prefix "  ") 269 270 (fontified t))
+Portal screens: ((:frame (0 0 1326 846) :name "Apple Virtual" :scale 2 :visible (0 74 1326 742)))
+   passed  3/4  launcher-portal-picker-and-dictionary (5.472583 sec)
+Launching Calculator
+Searching Google for: d hello
+Completion elsewhere: ((consult-grep t nil nil) (consult-imenu t nil t) (read-file-name nil t nil))
+   passed  4/4  launcher-portal-rollback-and-completion-elsewhere (2.096411 sec)
+
+Ran 4 tests, 4 results as expected, 0 unexpected (2026-10-07 02:47:55-0700, 27.890780 sec)
+
