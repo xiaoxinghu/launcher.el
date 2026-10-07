@@ -1,0 +1,94 @@
+For information about GNU Emacs and the GNU system, type C-h C-a.
+Environment: GNU Emacs 31.1 (build 1, aarch64-apple-darwin25.6.0, NS appkit-2685.70 Version 26.6.2 (Build 25G83))
+ of 2026-09-26; repository a360712c9d272d950d8d8255ef74570f7e90b7d9; 27.0.1; Vertico 2.15; frame 80x36 chars, 597x508 px, font Menlo
+Running 3 tests (2026-10-07 01:00:16-0700, selector ‘"^launcher-dictionary-real-"’)
+Building the osx-dictionary helper...done
+Dictionary failed: No definition for "qwxzv" (searched: All active dictionaries)
+Dictionary states: ((query " *Minibuf-1*" minibuffer-mode "" "" 1 1) (result "*Launcher Dictionary*" osx-dictionary-mode nil nil 1 1) (result "*Launcher Dictionary*" osx-dictionary-mode nil nil 1 1) (query " *Minibuf-1*" minibuffer-mode "qwxzv" #(" [Dictionary failed: No definition for \"qwxzv\" (searched: All active dictionaries)]" 0 1 (cursor t)) 1 1) (result "*Launcher Dictionary*" osx-dictionary-mode nil nil 1 1) (query " *Minibuf-1*" minibuffer-mode "ice cream" "" 1 1))
+Dictionary results: (("hello" "hello hel·lo | həˈlō, heˈlō | (hallo) (mainly British English hullo) exclamation used as a greeting or to begin a phone conversation: hello there, Katie!.
+• British English used to express surprise: hello, what's all this then?.
+• used as a cry to attract someone's attention: “Hello below!” he cried.
+• expressing sarcasm or anger: Hello! Did you even get what the play was about?. noun (plural hellos) an utterance of “hello”; a greeting: she was getting polite nods and hellos from people. verb (helloes, helloing, helloed) [no object] say or shout “hello”; greet someone: I pressed the phone button and helloed.
+ORIGIN early 19th century: variant of earlier hollo; related to holla.
+") ("ice cream" "ice cream | ˌīs ˈkrēm, ˈīs ˌkrēm | noun a soft frozen food made with sweetened and flavored milk fat.
+• a portion of ice cream, especially as served or sold in a cone-shaped wafer.
+ORIGIN late 17th century: from ice + cream.
+"))
+Test launcher-dictionary-real-buffer-flow backtrace:
+  ert-fail(((should (eq 'query (plist-get back :view))) :form (eq quer
+  (if (unwind-protect (setq value-2445 (apply fn-2443 args-2444)) (set
+  (let (form-description-2447) (if (unwind-protect (setq value-2445 (a
+  (let ((value-2445 'ert-form-evaluation-aborted-2446)) (let (form-des
+  (let* ((fn-2443 #'eq) (args-2444 (condition-case err (list 'query (p
+  (progn (let* ((fn-2403 #'equal) (args-2404 (condition-case err (list
+  (let ((query x2391) (shown x2393) (back x2395) (unknown x2397) (mult
+  (progn (ignore (null x2402)) (let ((query x2391) (shown x2393) (back
+  (let* ((x2401 (car-safe x2400)) (x2402 (cdr-safe x2400))) (progn (ig
+  (progn (ignore (consp x2400)) (let* ((x2401 (car-safe x2400)) (x2402
+  (let* ((x2399 (car-safe x2398)) (x2400 (cdr-safe x2398))) (progn (ig
+  (progn (ignore (consp x2398)) (let* ((x2399 (car-safe x2398)) (x2400
+  (let* ((x2397 (car-safe x2396)) (x2398 (cdr-safe x2396))) (progn (ig
+  (progn (ignore (consp x2396)) (let* ((x2397 (car-safe x2396)) (x2398
+  (let* ((x2395 (car-safe x2394)) (x2396 (cdr-safe x2394))) (progn (ig
+  (progn (ignore (consp x2394)) (let* ((x2395 (car-safe x2394)) (x2396
+  (let* ((x2393 (car-safe x2392)) (x2394 (cdr-safe x2392))) (progn (ig
+  (progn (ignore (consp x2392)) (let* ((x2393 (car-safe x2392)) (x2394
+  (let* ((x2391 (car-safe states)) (x2392 (cdr-safe states))) (progn (
+  (progn (ignore (consp states)) (let* ((x2391 (car-safe states)) (x23
+  (let ((states (let (states) (let* ((--cl-snap-- #'...)) (progn (let*
+  (let* ((window (selected-window)) (before (launcher-gui--window-stat
+  (progn (let* ((window (selected-window)) (before (launcher-gui--wind
+  (unwind-protect (progn (let* ((window (selected-window)) (before (la
+  (let ((launcher-tools '(("d" :name "Dictionary" :prompt "Word: " :fu
+  (progn (let ((launcher-tools '(("d" :name "Dictionary" :prompt "Word
+  (unwind-protect (progn (let ((launcher-tools '(("d" :name "Dictionar
+  (let ((launcher-tools launcher-gui-tool--tools) (launcher--tool-hist
+  (progn (fset 'browse-url vnew) (fset 'launcher--launch vnew) (let ((
+  (unwind-protect (progn (fset 'browse-url vnew) (fset 'launcher--laun
+  (let* ((vnew #'(lambda (path) (setq launcher-gui--launched (cons pat
+  (unwind-protect (let* ((vnew #'(lambda (path) (setq launcher-gui--la
+  (let* ((frames (frame-list)) (frame (selected-frame)) (size (list (f
+  (progn (let* ((fn-2381 #'eq) (args-2382 (condition-case err (list wi
+  (progn (launcher-dictionary-real--load) (progn (let* ((fn-2381 #'eq)
+  #f(lambda () [osx-dictionary--current-word osx-dictionary-previous-w
+  #f(compiled-function () #<bytecode 0x165ddbbe99b9c6c1>)()
+  handler-bind-1(#f(compiled-function () #<bytecode 0x165ddbbe99b9c6c1
+  ert--run-test-internal(#s(ert--test-execution-info :test ... :result
+  ert-run-test(#s(ert-test :name launcher-dictionary-real-buffer-flow 
+  ert-run-or-rerun-test(#s(ert--stats :selector "^launcher-dictionary-
+  ert-run-tests("^launcher-dictionary-real-" #f(compiled-function (eve
+  ert-run-tests-batch("^launcher-dictionary-real-")
+  (let ((stats (ert-run-tests-batch (getenv "LAUNCHER_TEST_SELECTOR"))
+  (condition-case err (let ((stats (ert-run-tests-batch (getenv "LAUNC
+  (unwind-protect (condition-case err (let ((stats (ert-run-tests-batc
+  (let ((status 1)) (message "Environment: %s; repository %s; %s; Vert
+  launcher-gui-run-and-exit()
+  apply(launcher-gui-run-and-exit nil)
+  timer-event-handler([t 27333 64528 784022 nil launcher-gui-run-and-e
+Test launcher-dictionary-real-buffer-flow condition:
+    (ert-test-failed
+     ((should (eq 'query (plist-get back :view))) :form (eq query result)
+      :value nil))
+   FAILED  1/3  launcher-dictionary-real-buffer-flow (6.783960 sec) at portal-test-runs/launcher.rd3RjnTq/repo/test/launcher-osx-dictionary-gui-tests.el:80
+Dictionary environment: osx-dictionary 655bca5cea78440a1ac41f9cd78711b9c8aff8f3; macOS 27.0.1; GNU Emacs 31.1 (build 1, aarch64-apple-darwin25.6.0, NS appkit-2685.70 Version 26.6.2 (Build 25G83))
+ of 2026-09-26; clang: Apple clang version 21.0.0 (clang-2100.3.34.2); developer tools: /Applications/Xcode.app/Contents/Developer; helper: /var/folders/_2/z_y6mlmd25lb2fzjjw3zqq_00000gn/T/launcher-dictionary-realuTPGW1/osx-dictionary-cli; restricted to: nil; 87 dictionaries listed, English ones: ("New Oxford American Dictionary" "Oxford PWN Polish-English Dictionary / Wielki słownik polsko-angielski" "Oxford American Writer’s Thesaurus" "Oxford Dictionary of English" "Kamus Dwibahasa Melayu/Inggeris - English/Malay Bilingual Dictionary, Oxford Fajar" "NE Nationalencyklopedin AB Professional English-Swedish / Svensk-Engelska" "Oxford Thesaurus of English" "Stavropoulos Oxford Greek-English Learners Dictionary")
+   passed  2/3  launcher-dictionary-real-environment (0.065922 sec)
+Unicode states: ((query " *Minibuf-1*" minibuffer-mode "café" "" 1 1) (result "*Launcher Dictionary*" osx-dictionary-mode nil nil 1 1) (nil "*Launcher Dictionary*" osx-dictionary-mode nil nil 2 1))
+Unicode results: (("café" "cafe ca·fe | kaˈfā | (also café) noun
+1 a small restaurant selling light meals and drinks.
+2 North American English a bar or nightclub.
+3 (café) a serving of coffee, especially prepared European-style: [in combination] : an assortment of cappuccinos and café mochas.
+ORIGIN early 19th century: from French café ‘coffee or coffee house’.
+") ("hello" "hello hel·lo | həˈlō, heˈlō | (hallo) (mainly British English hullo) exclamation used as a greeting or to begin a phone conversation: hello there, Katie!.
+• British English used to express surprise: hello, what's all this then?.
+• used as a cry to attract someone's attention: “Hello below!” he cried.
+• expressing sarcasm or anger: Hello! Did you even get what the play was about?. noun (plural hellos) an utterance of “hello”; a greeting: she was getting polite nods and hellos from people. verb (helloes, helloing, helloed) [no object] say or shout “hello”; greet someone: I pressed the phone button and helloed.
+ORIGIN early 19th century: variant of earlier hollo; related to holla.
+"))
+   passed  3/3  launcher-dictionary-real-pasted-unicode-and-minibuffer (2.192253 sec)
+
+Ran 3 tests, 2 results as expected, 1 unexpected (2026-10-07 01:00:26-0700, 9.613639 sec)
+
+1 unexpected results:
+   FAILED  launcher-dictionary-real-buffer-flow
+
