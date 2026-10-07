@@ -178,6 +178,9 @@ Afterwards, check that no interaction state, hook or keymap remains."
             (exit-hook (default-value 'minibuffer-exit-hook))
             (emulation emulation-mode-map-alists)
             (launcher--apps launcher-gui--apps)
+            ;; The fake apps have no icons; launcher-icons-gui-tests.el
+            ;; checks real ones.
+            (launcher-show-icons nil)
             (launcher-gui--launched nil)
             (launcher-gui--searched nil)
             (vertico-count 6))

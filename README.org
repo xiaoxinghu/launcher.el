@@ -28,6 +28,50 @@ when no text has been typed.
 In stock completion, Space inserts a space and Tab completes.  Custom Space
 bindings and completion UIs such as Vertico are preserved.
 
+** App icons
+
+On macOS, in a graphical frame, both commands show each app's own icon
+before its name, as macOS draws it.  Nothing else changes: matching,
+history, bangs, tools and what Return does are as before.  In a terminal,
+or with ~(setq launcher-show-icons nil)~, the list is text only, as before.
+
+- Icons come from AppKit (~NSWorkspace iconForFile:~), through macOS's
+  built-in ~osascript~ and the packaged script ~assets/launcher-icons.js~:
+  no compiler, Homebrew package, Python or icon font.  Install that file
+  with the package (~package-vc~ does; a MELPA-style recipe needs
+  ~:files ("*.el" "assets/launcher-icons.js")~).
+- They are drawn in the background, a batch of apps at a time, and never
+  slow typing: an app whose icon is not ready yet shows blank space as
+  wide, and its icon appears when the list is next redrawn.
+- ~launcher-icon-size~ (default 20) is the list's icon size in logical
+  pixels.  Rows of apps and of bangs are as tall as the icon or the line,
+  whichever is taller.  On a Retina display, icons use twice as many
+  pixels, so they stay sharp.
+- Icons are cached as 64, 256 and 512 pixel PNGs under
+  ~launcher-icon-cache-directory~ (~cache/launcher/icons/~ in your Emacs
+  directory), and survive restarts.  The launcher deletes only files it
+  made there.
+- The cache follows app updates: when a launcher starts, apps not checked
+  for ~launcher-icon-check-interval~ seconds (default 300) are checked in
+  the background against their bundle, version, icon file and asset
+  catalog, and a changed app's icons are made again.  ~C-u M-x launcher~
+  and ~M-x launcher-refresh~ check every app at once, and forget the icons
+  of apps that are gone.  These checks are hints, not guarantees: a custom
+  Finder icon, a change that keeps the files' times and sizes, or an icon
+  that follows the system's appearance can go unnoticed.  Then
+  ~M-x launcher-clear-icon-cache~ deletes all icons and makes them again.
+- If an icon cannot be made, the app is listed and launched as usual;
+  failures are logged in the hidden buffer ~" *launcher-icons*"~ and tried
+  again after the check interval.
+- With icons, the launcher's completion category is ~launcher-app~, so
+  that add-ons such as ~nerd-icons-completion~ add no generic icon of
+  their own; Marginalia and Vertico work as before.
+
+Other views can show the same icons at other sizes: ~(launcher--icon PATH
+SIZE)~ returns an image of the app at PATH, SIZE logical pixels wide, or
+nil, without waiting, and ~launcher-icon-updated-hook~ runs with an app's
+path when a better or newer icon is ready.
+
 ** Full-buffer launcher
 
 ~launcher-buffer~ offers exactly the choices of ~launcher~ (apps, bangs,
@@ -202,8 +246,15 @@ Run the regression tests without Vertico, launching apps or opening a browser:
 sh test/elpa.sh   # pinned packages, into .cache/elpa
 emacs --batch -Q -L . -L test -l test/launcher-tests.el -l test/launcher-buffer-tests.el \
   -l test/launcher-tools-tests.el -l test/launcher-osx-dictionary-tests.el \
+  -l test/launcher-icons-tests.el -l test/launcher-icons-worker-tests.el \
   -f ert-run-tests-batch-and-exit
 #+end_src
+
+The icon cache checks (~test/launcher-icons-tests.el~) replace the worker
+with a fake process and the clock with a fake one, so they need neither
+macOS nor a display.  ~test/launcher-icons-worker-tests.el~ runs the real
+worker on system apps and on fake bundles in temporary directories, on
+macOS only, and skips elsewhere.
 
 The dictionary checks use the pinned osx-dictionary that ~test/elpa.sh~
 fetches, and skip without it.  A fake helper script stands in for its
@@ -211,8 +262,8 @@ native one, so they need neither macOS nor dictionaries, and prove no real
 lookup.
 
 Vertico's display needs a graphical Emacs.  ~bash test/vm.sh~ runs the
-graphical checks (~test/gui.sh~, which loads ~test/launcher-tools-gui-tests.el~
-and ~test/launcher-buffer-gui-tests.el~) in a disposable Emacs in the macOS test VM
+graphical checks (~test/gui.sh~, which loads ~test/launcher-tools-gui-tests.el~,
+~test/launcher-buffer-gui-tests.el~ and ~test/launcher-icons-gui-tests.el~) in a disposable Emacs in the macOS test VM
 that Portal's ~test/vm.sh~ uses, without Portal, typing through AppKit's
 event queue.  It fetches pinned Vertico, Orderless and Marginalia releases
 with ~test/elpa.sh~ into ~.cache/elpa~, and copies logs and screenshots back
