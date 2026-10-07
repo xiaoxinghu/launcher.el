@@ -40,37 +40,27 @@ or with ~(setq launcher-show-icons nil)~, the list is text only, as before.
   no compiler, Homebrew package, Python or icon font.  Install that file
   with the package (~package-vc~ does; a MELPA-style recipe needs
   ~:files ("*.el" "assets/launcher-icons.js")~).
-- They are drawn in the background, a batch of apps at a time, and never
-  slow typing: an app whose icon is not ready yet shows blank space as
-  wide, and its icon appears when the list is next redrawn.
+- Missing icons are drawn in the background, all at once, and never slow
+  typing: an app whose icon is not ready yet shows blank space as large,
+  and its icon appears when the list is next redrawn.  Drawing 500 apps'
+  icons takes a few seconds, once.
 - ~launcher-icon-size~ (default 20) is the list's icon size in logical
-  pixels.  Rows of apps and of bangs are as tall as the icon or the line,
-  whichever is taller.  On a Retina display, icons use twice as many
-  pixels, so they stay sharp.
-- Icons are cached as 64, 256 and 512 pixel PNGs under
-  ~launcher-icon-cache-directory~ (~cache/launcher/icons/~ in your Emacs
-  directory), and survive restarts.  The launcher deletes only files it
-  made there.
-- The cache follows app updates: when a launcher starts, apps not checked
-  for ~launcher-icon-check-interval~ seconds (default 300) are checked in
-  the background against their bundle, version, icon file and asset
-  catalog, and a changed app's icons are made again.  ~C-u M-x launcher~
-  and ~M-x launcher-refresh~ check every app at once, and forget the icons
-  of apps that are gone.  These checks are hints, not guarantees: a custom
-  Finder icon, a change that keeps the files' times and sizes, or an icon
-  that follows the system's appearance can go unnoticed.  Then
-  ~M-x launcher-clear-icon-cache~ deletes all icons and makes them again.
-- If an icon cannot be made, the app is listed and launched as usual;
-  failures are logged in the hidden buffer ~" *launcher-icons*"~ and tried
-  again after the check interval.
+  pixels; icons stay sharp up to 32 on a Retina display.  Rows of apps and
+  of bangs are as tall as the icon or the line, whichever is taller.
+- Icons are cached as 64-pixel PNGs under ~launcher-icon-cache-directory~
+  (~cache/launcher/icons/~ in your Emacs directory), and survive restarts.
+  A PNG is named after its app's path and its ~Info.plist~'s modification
+  time, so an updated app gets a new icon.  ~C-u M-x launcher~ and
+  ~M-x launcher-refresh~ delete the icons of apps that are gone.  An icon
+  that changes without its ~Info.plist~, such as a custom Finder icon,
+  goes unnoticed: ~M-x launcher-clear-icon-cache~ deletes all icons, which
+  are then drawn again.  The launcher deletes only the PNGs it made.
+- If an icon cannot be drawn, the app is listed and launched as usual; the
+  failure is noted in the hidden buffer ~" *launcher-icons*"~ and tried
+  again after the next index refresh.
 - With icons, the launcher's completion category is ~launcher-app~, so
   that add-ons such as ~nerd-icons-completion~ add no generic icon of
   their own; Marginalia and Vertico work as before.
-
-Other views can show the same icons at other sizes: ~(launcher--icon PATH
-SIZE)~ returns an image of the app at PATH, SIZE logical pixels wide, or
-nil, without waiting, and ~launcher-icon-updated-hook~ runs with an app's
-path when a better or newer icon is ready.
 
 ** Full-buffer launcher
 
@@ -251,10 +241,10 @@ emacs --batch -Q -L . -L test -l test/launcher-tests.el -l test/launcher-buffer-
 #+end_src
 
 The icon cache checks (~test/launcher-icons-tests.el~) replace the worker
-with a fake process and the clock with a fake one, so they need neither
-macOS nor a display.  ~test/launcher-icons-worker-tests.el~ runs the real
-worker on system apps and on fake bundles in temporary directories, on
-macOS only, and skips elsewhere.
+with a fake process, so they need neither macOS nor a display.
+~test/launcher-icons-worker-tests.el~ runs the real worker on system apps
+and on fake bundles in temporary directories, on macOS only, and skips
+elsewhere.
 
 The dictionary checks use the pinned osx-dictionary that ~test/elpa.sh~
 fetches, and skip without it.  A fake helper script stands in for its

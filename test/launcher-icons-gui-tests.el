@@ -2,9 +2,9 @@
 
 ;; GUI ONLY: run in the test VM with `bash test/vm.sh', which runs
 ;; test/gui.sh.  Real icons of the VM's system apps, made by the real
-;; worker into a temporary cache, shown by Vertico, stock completion,
-;; launcher-buffer and an ordinary buffer, in the fixture of
-;; launcher-buffer-gui-tests.el.  Launching and browsing are stubbed.
+;; worker into a temporary cache, shown by Vertico, stock completion and
+;; launcher-buffer, in the fixture of launcher-buffer-gui-tests.el.
+;; Launching and browsing are stubbed.
 
 (require 'launcher-buffer-gui-tests)
 
@@ -29,11 +29,10 @@
     (launcher--build-entries (append paths (list fake)))))
 
 (defun launcher-gui-icons--wait ()
-  "Wait until no icon work is queued or running."
+  "Wait until no icon worker runs."
   (with-timeout (60 (error "Icon worker did not finish"))
-    (while (or launcher-icons--job launcher-icons--kick-timer
-               launcher-icons--urgent launcher-icons--queue)
-      (accept-process-output nil 0.05))))
+    (while (process-live-p launcher-icons--process)
+      (accept-process-output launcher-icons--process 0.05))))
 
 (defmacro launcher-gui-icons--with (&rest body)
   "Run BODY in the fixture, with icons of real apps in a temporary cache.
@@ -43,15 +42,9 @@
      (let* ((directory (file-name-as-directory (make-temp-file "launcher-icons-gui" t)))
             (launcher-icon-cache-directory (expand-file-name "cache/" directory))
             (launcher-show-icons t)
-            (launcher-icons--records (make-hash-table :test #'equal))
-            (launcher-icons--epoch 0)
-            (launcher-icons--urgent nil)
-            (launcher-icons--queue nil)
-            (launcher-icons--job nil)
-            (launcher-icons--kick-timer nil)
-            (launcher-icons--swept nil)
-            (launcher-icons--available 'unknown)
-            (launcher-icon-updated-hook nil)
+            (launcher-icons--files (make-hash-table :test #'equal))
+            (launcher-icons--requested (make-hash-table :test #'equal))
+            (launcher-icons--process nil)
             (apps (launcher-gui-icons--apps directory))
             (launcher--apps apps))
        (ignore apps)
@@ -99,7 +92,8 @@ WIDTH is the pixel width of the row's text before its candidate."
       (if app
           (progn
             (should (= (length (nth 1 row)) 1))
-            (should (string-match-p "/64\\.png\\'" (car (nth 1 row)))))
+            (should (string-match-p launcher-icons--png-regexp
+                                    (file-name-nondirectory (car (nth 1 row))))))
         (should-not (nth 1 row)))))
   ;; Icons, and the space of bangs, are equally wide.
   (should (= (length (delete-dups (mapcar (lambda (row) (nth 2 row)) rows))) 1)))
@@ -207,69 +201,6 @@ the selected row included, without changing what is launched."
         (message "Icons: launcher-buffer rows %S"
                  (mapcar (lambda (row) (list (car row) (length (nth 1 row)))) rows))
         (launcher-gui-icons--check-rows rows)))))
-
-(ert-deftest launcher-gui-icons-preview-buffer ()
-  "An ordinary buffer shows an app at 128 and 256 logical pixels, from
-256 and 512 pixel PNGs, repainted by the update hook, which a killed
-preview ignores."
-  (launcher-gui-icons--with
-    (let* ((calculator "/System/Applications/Calculator.app")
-           (buffer (get-buffer-create "*launcher icon preview*"))
-           (windows (length (window-list)))
-           (paints 0)
-           (late-paints 0)
-           paint listener)
-      (setq paint
-            (lambda ()
-              (cl-incf paints)
-              (with-current-buffer buffer
-                (erase-buffer)
-                (dolist (size '(128 256))
-                  (insert (format "%d: " size)
-                          (propertize " " 'display (or (launcher--icon calculator size)
-                                                       `(space :width (,size) :height (,size))))
-                          "\n")))))
-      (setq listener (lambda (path)
-                       ;; A preview checks that it is live and shows that app.
-                       (if (and (buffer-live-p buffer) (equal path calculator))
-                           (funcall paint)
-                         (when (equal path calculator) (cl-incf late-paints)))))
-      (add-hook 'launcher-icon-updated-hook listener)
-      (unwind-protect
-          (progn
-            (switch-to-buffer buffer)
-            (funcall paint)
-            ;; Provisional: the list icon, enlarged, until the larger ones exist.
-            (should (string-suffix-p "/64.png" (plist-get (cdr (launcher--icon calculator 128))
-                                                          :file)))
-            (launcher-gui-icons--wait)
-            (redisplay t)
-            (let* ((small (launcher--icon calculator 128))
-                   (large (launcher--icon calculator 256)))
-              (should (string-suffix-p "/256.png" (plist-get (cdr small) :file)))
-              (should (string-suffix-p "/512.png" (plist-get (cdr large) :file)))
-              (should (equal (image-size small t) '(128 . 128)))
-              (should (equal (image-size large t) '(256 . 256)))
-              (launcher-gui--capture "icons-preview")
-              (let ((heights (launcher-gui-icons--line-heights (selected-window))))
-                (message "Icons: preview line heights %S, default %d, scale %s, paints %d"
-                         heights (default-line-height) (frame-scale-factor) paints)
-                ;; Each row as tall as its icon, not doubled by Retina.
-                (should (<= 128 (nth 0 heights) (+ 128 (default-line-height))))
-                (should (<= 256 (nth 1 heights) (+ 256 (default-line-height)))))
-              (should (>= paints 2))))
-        (kill-buffer buffer))
-      ;; Icons made again after the preview closed must not reopen it.
-      (switch-to-buffer "*launcher GUI origin*")
-      (let ((selected (selected-window)))
-        (launcher-clear-icon-cache)
-        (launcher--icon calculator 128)
-        (launcher-gui-icons--wait)
-        (should (> late-paints 0))
-        (should-not (get-buffer "*launcher icon preview*"))
-        (should (eq (selected-window) selected))
-        (should (= (length (window-list)) windows)))
-      (remove-hook 'launcher-icon-updated-hook listener))))
 
 (provide 'launcher-icons-gui-tests)
 ;;; launcher-icons-gui-tests.el ends here

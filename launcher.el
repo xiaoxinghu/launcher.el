@@ -367,7 +367,7 @@ is as for `launcher--read-query'."
 (defun launcher--affixation (candidates)
   "Return CANDIDATES, in order, as (CANDIDATE PREFIX SUFFIX) lists.
 PREFIX shows an app's icon, or blank space as wide for a bang or an app
-whose icon is not cached yet.  SUFFIX is the annotation, or \"\"."
+whose icon is not made yet.  SUFFIX is the annotation, or \"\"."
   (mapcar (lambda (candidate)
             (list candidate
                   (launcher-icons-prefix (cdr (assoc candidate launcher--current-entries)))
@@ -376,8 +376,8 @@ whose icon is not cached yet.  SUFFIX is the annotation, or \"\"."
 
 (defun launcher--completion-properties (entries)
   "Return `completion-extra-properties' for choosing among ENTRIES.
-With icons in the selected frame, queue the icons ENTRIES need, and
-return an affixation function showing them."
+With icons in the selected frame, start making the icons ENTRIES miss,
+and return an affixation function showing them."
   (if (and entries (launcher-icons-enabled-p))
       (progn
         (condition-case err
