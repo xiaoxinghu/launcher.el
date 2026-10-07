@@ -24,11 +24,12 @@ It keeps the sentinel of ARGS, which `launcher-icons-test--exit' runs."
     (process-put process 'sentinel (plist-get args :sentinel))
     process))
 
-(defun launcher-icons-test--exit ()
-  "End the running fake worker, and run its sentinel as Emacs would."
+(defun launcher-icons-test--exit (&optional event)
+  "End the running fake worker, and run its sentinel as Emacs would.
+EVENT is the sentinel's, \"finished\\n\" by default."
   (let ((process launcher-icons--process))
     (delete-process process)
-    (funcall (process-get process 'sentinel) process "finished\n")))
+    (funcall (process-get process 'sentinel) process (or event "finished\n"))))
 
 (defmacro launcher-icons-test--with-cache (&rest body)
   "Run BODY with icons enabled, a fake worker, and a temporary
@@ -170,6 +171,18 @@ It is named like the launcher's own, as a shared directory may hold."
       (launcher-icons-prepare (list calc broken))
       (should (equal (launcher-icons-test--apps-of (car launcher-icons-test--spawned))
                      (list calc))))))
+
+(ert-deftest launcher-icons-a-crashed-worker-is-retried ()
+  (launcher-icons-test--with-cache
+    (let ((calc (launcher-icons-test--app "Calc.app"))
+          (notes (launcher-icons-test--app "Notes.app")))
+      (launcher-icons-prepare (list calc notes))
+      ;; The worker makes Calc's icon, and dies before Notes'.
+      (write-region "png" nil (launcher-icons--file calc) nil 'silent)
+      (launcher-icons-test--exit "killed\n")
+      (launcher-icons-prepare (list calc notes))
+      (should (equal (launcher-icons-test--apps-of (car launcher-icons-test--spawned))
+                     (list notes))))))
 
 (ert-deftest launcher-icons-a-stuck-worker-is-stopped ()
   ;; Even when the next launcher finds no icon it has not asked for yet.

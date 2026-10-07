@@ -142,17 +142,20 @@ If a worker is still running, leave ICONS to a later launcher."
                                      ,(number-to-string launcher-icons--pixels)
                                      ,@(mapcan (lambda (icon) (list (car icon) (cdr icon)))
                                                icons))
-                          :sentinel (lambda (process _event)
+                          :sentinel (lambda (process event)
                                       (unless (process-live-p process)
-                                        (launcher-icons--forget-made icons)))))
+                                        (launcher-icons--forget icons
+                                                                (equal event "finished\n"))))))
       (process-put launcher-icons--process 'start (float-time))
       (dolist (icon icons)
         (puthash (cdr icon) t launcher-icons--requested)))))
 
-(defun launcher-icons--forget-made (icons)
-  "Forget the requests of ICONS whose PNGs a worker made."
+(defun launcher-icons--forget (icons finished)
+  "Forget the requests of ICONS, once their worker exited.
+If it FINISHED, keep those whose PNGs it failed to make; otherwise,
+as when it crashed or was killed, forget all."
   (dolist (icon icons)
-    (when (file-exists-p (cdr icon))
+    (when (or (not finished) (file-exists-p (cdr icon)))
       (remhash (cdr icon) launcher-icons--requested))))
 
 (defun launcher-icons-prefix (app-path)
