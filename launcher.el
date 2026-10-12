@@ -12,9 +12,19 @@
 ;; After the group, which its options belong to.
 (require 'launcher-icons)
 
+(defcustom launcher-app-discovery-method 'spotlight
+  "Method used to discover applications.
+`spotlight' queries Spotlight and `filesystem' scans application directories.
+Run `launcher-refresh' after changing this option to rebuild the session's
+cached application list."
+  :type '(choice (const :tag "Spotlight" spotlight)
+                 (const :tag "File system" filesystem))
+  :group 'launcher)
+
 (defcustom launcher-mdfind-query
   "kMDItemContentTypeTree == \"com.apple.application-bundle\""
-  "Spotlight query used to discover application bundles."
+  "Spotlight query used to discover application bundles.
+Only used when `launcher-app-discovery-method' is `spotlight'."
   :type 'string
   :group 'launcher)
 
@@ -105,7 +115,7 @@ for an invalid entry."
   "Return app display name parsed from PATH."
   (file-name-base (directory-file-name path)))
 
-(defun launcher--collect-paths ()
+(defun launcher--collect-paths-spotlight ()
   "Return discovered .app paths from standard Application directories.
 Searches only in `launcher-app-directories' using Spotlight's -onlyin flag."
   (unless (launcher--available-p "mdfind")
@@ -124,6 +134,41 @@ Searches only in `launcher-app-directories' using Spotlight's -onlyin flag."
        (and (string-suffix-p ".app" path)
             (file-directory-p path)))
      results)))
+
+(defun launcher--collect-paths-filesystem ()
+  "Scan `launcher-app-directories' for application bundles.
+Stop at .app directories.  Follow explicitly configured roots, but do
+not recurse into directory symlinks encountered below them."
+  (let ((pending (mapcar #'expand-file-name launcher-app-directories))
+        results)
+    (while pending
+      (let ((dir (pop pending)))
+        (when (file-directory-p dir)
+          (if (string-suffix-p ".app" (directory-file-name dir))
+              (push (directory-file-name dir) results)
+            (condition-case err
+                (dolist (path (directory-files dir t directory-files-no-dot-files-regexp))
+                  (when (file-directory-p path)
+                    (cond
+                     ((string-suffix-p ".app" path) (push path results))
+                     ((not (file-symlink-p path)) (push path pending)))))
+              (file-error
+               (message "Launcher cannot scan %s: %s"
+                        dir (error-message-string err))))))))
+    (nreverse results)))
+
+(defun launcher--collect-paths ()
+  "Discover apps using `launcher-app-discovery-method'.
+Return unique absolute paths without resolving symlinks."
+  (let ((paths
+         (pcase launcher-app-discovery-method
+           ('spotlight (launcher--collect-paths-spotlight))
+           ('filesystem (launcher--collect-paths-filesystem))
+           (_ (user-error "Invalid `launcher-app-discovery-method': %S"
+                          launcher-app-discovery-method)))))
+    (delete-dups (mapcar (lambda (path)
+                          (directory-file-name (expand-file-name path)))
+                        paths))))
 
 (defun launcher--format-display-name (name path duplicate-p)
   "Return display label for NAME and PATH.
@@ -469,7 +514,7 @@ TOOLS: then report the problem and return nil, keeping them reachable."
         (when refresh
           (launcher-refresh))
         (or (launcher--ensure-index)
-            (user-error "No apps discovered from Spotlight index")))
+            (user-error "No apps discovered from configured application directories")))
     (error
      (unless tools
        (signal (car err) (cdr err)))
@@ -524,7 +569,7 @@ Return the buffer TOOL's function returns, or nil to go back."
 
 ;;;###autoload
 (defun launcher (&optional refresh)
-  "Prompt for a macOS app from Spotlight index and launch it.
+  "Prompt for a macOS app from the cached application list and launch it.
 With prefix argument REFRESH, rebuild app index first.
 Type a bang shortcut followed by a space to search the web directly:
   !g  → Google   !yt → YouTube   !gh → GitHub

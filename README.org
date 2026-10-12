@@ -28,6 +28,31 @@ when no text has been typed.
 In stock completion, Space inserts a space and Tab completes.  Custom Space
 bindings and completion UIs such as Vertico are preserved.
 
+** Application discovery
+
+~launcher-app-discovery-method~ selects how apps are found:
+
+- ~spotlight~ (default): query Spotlight with ~launcher-mdfind-query~.
+- ~filesystem~: recursively scan ~launcher-app-directories~ without
+  entering ~.app~ bundles, so their internal helper apps are excluded.
+
+#+begin_src emacs-lisp
+(setq launcher-app-discovery-method 'filesystem) ; or 'spotlight
+#+end_src
+
+Both sources use ~launcher-app-directories~.  The filesystem scanner skips
+missing directories and reports unreadable directories before continuing.
+It follows explicitly configured roots, including symlinks, but does not
+recurse into directory symlinks encountered below them.  Symlinks to valid
+~.app~ directories are included.  Different paths to the same target remain
+distinct; deduplication does not resolve symlinks.
+
+The application list is cached in memory for the Emacs session.  After
+changing discovery settings or installing/removing apps, run
+~M-x launcher-refresh~ (or ~C-u M-x launcher~) to rebuild it.
+~launcher-mdfind-query~ only affects Spotlight discovery; filesystem mode
+does not require ~mdfind~.
+
 ** App icons
 
 On macOS, in a graphical frame, both commands show each app's own icon
