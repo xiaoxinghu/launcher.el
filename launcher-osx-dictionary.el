@@ -11,6 +11,7 @@
 ;;   (require 'launcher-osx-dictionary)
 ;;   (setq launcher-tools
 ;;         '(("d" :name "Dictionary" :prompt "Word: "
+;;                 :query launcher-osx-dictionary-query :debounce 0.2
 ;;                 :function launcher-osx-dictionary-lookup)))
 ;;
 ;; Loading this file loads neither osx-dictionary nor its helper; the
@@ -171,6 +172,29 @@ Display nothing."
         (set-window-start window (point-min))))
     buffer))
 
+(defun launcher-osx-dictionary--text (word)
+  "Return definitions for trimmed WORD without changing a result buffer."
+  (launcher-osx-dictionary--require)
+  (let* ((osx-dictionary-search-log-file
+          (and osx-dictionary-search-log-file
+               (expand-file-name osx-dictionary-search-log-file)))
+         (default-directory (file-name-as-directory osx-dictionary--load-dir)))
+    (launcher-osx-dictionary--search word)))
+
+;;;###autoload
+(defun launcher-osx-dictionary-query (query)
+  "Return a definition preview for QUERY, without displaying or rendering a buffer.
+Use this as a tool's :query with :debounce 0.2.  Selecting the candidate
+renders the captured definitions without looking the word up again."
+  (let ((word (string-trim query)))
+    (unless (string-empty-p word)
+      (let* ((text (launcher-osx-dictionary--text word))
+             (summary (truncate-string-to-width
+                       (string-join (split-string (substring-no-properties text) "[[:space:]]+" t) " ")
+                       160 nil nil "…")))
+        (list (list :id word :title word :subtitle summary
+                    :function (lambda () (launcher-osx-dictionary--render word text))))))))
+
 ;;;###autoload
 (defun launcher-osx-dictionary-lookup (query)
   "Look QUERY up in Apple's dictionaries; return the result buffer.
@@ -188,14 +212,7 @@ does the lookup."
   (let ((word (string-trim query)))
     (when (string-empty-p word)
       (error "Nothing to look up"))
-    (launcher-osx-dictionary--require)
-    ;; The package runs its helper through a shell in this directory,
-    ;; which must be local.  A relative search log stays the caller's.
-    (let* ((osx-dictionary-search-log-file
-            (and osx-dictionary-search-log-file
-                 (expand-file-name osx-dictionary-search-log-file)))
-           (default-directory (file-name-as-directory osx-dictionary--load-dir)))
-      (launcher-osx-dictionary--render word (launcher-osx-dictionary--search word)))))
+    (launcher-osx-dictionary--render word (launcher-osx-dictionary--text word))))
 
 (defun launcher-osx-dictionary-quit ()
   "Leave this dictionary result.

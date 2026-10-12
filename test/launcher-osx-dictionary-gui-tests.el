@@ -52,7 +52,7 @@
   `(progn
      (launcher-dictionary-real--load)
      (launcher-gui-tool--with
-       (let ((launcher-tools '(("d" :name "Dictionary" :prompt "Word: "
+       (let ((launcher-tools '(("d" :name "Dictionary" :query launcher-osx-dictionary-query :debounce 0.2
                                 :function launcher-osx-dictionary-lookup)))
              (osx-dictionary-current-dictionary nil)
              (osx-dictionary-previous-window-configuration nil))
@@ -91,13 +91,13 @@
                        (launcher-gui-tool--run
                         #'launcher-buffer
                         (list "d " (snap "40-dictionary-query")
-                              "hello" 'return (snap "41-dictionary-result") (result)
+                              "hello" #'ignore 'return (snap "41-dictionary-result") (result)
                               ;; s: back to the query, keeping the word.
                               "s" (snap "42-dictionary-back")
                               'backspace 'backspace 'backspace 'backspace 'backspace
-                              "qwxzv" 'return (snap "43-dictionary-unknown")
+                              "qwxzv" #'ignore (snap "43-dictionary-unknown")
                               'backspace 'backspace 'backspace 'backspace 'backspace
-                              "ice cream" 'return (snap "44-dictionary-multiword") (result)
+                              "ice cream" #'ignore 'return (snap "44-dictionary-multiword") (result)
                               ;; q: back to the query too.
                               "q" (snap)
                               'escape)))))))
@@ -106,7 +106,7 @@
         (message "Dictionary results: %S" results)
         (should (eq 'quit outcome))
         (pcase-let ((`(,query ,shown ,back ,unknown ,multiword ,quit) states))
-          (should (equal "Dictionary — Word: " (plist-get query :prompt)))
+          (should (equal "Launch: " (plist-get query :prompt)))
           (dolist (state (list shown multiword))
             (should (eq 'result (plist-get state :view)))
             (should (eq window (plist-get state :window)))
@@ -116,14 +116,14 @@
             (should (plist-get state :top))
             (should (= 1 (plist-get state :windows)))
             (should (= (length frames) (plist-get state :frames))))
-          (should (eq 'query (plist-get back :view)))
-          (should (equal "hello" (plist-get back :input)))
-          (should (eq 'query (plist-get unknown :view)))
-          (should (equal "qwxzv" (plist-get unknown :input)))
-          (should (string-match-p "Dictionary failed: No definition for \"qwxzv\""
+          (should (eq 'picker (plist-get back :view)))
+          (should (equal "d hello" (plist-get back :input)))
+          (should (eq 'picker (plist-get unknown :view)))
+          (should (equal "d qwxzv" (plist-get unknown :input)))
+          (should (string-match-p "Dictionary: No definition for \"qwxzv\""
                                   (plist-get unknown :notice)))
-          (should (eq 'query (plist-get quit :view)))
-          (should (equal "ice cream" (plist-get quit :input))))
+          (should (eq 'picker (plist-get quit :view)))
+          (should (equal "d ice cream" (plist-get quit :input))))
         (pcase-let ((`((,hello ,hello-text) (,ice ,ice-text)) results))
           (should (equal "hello" hello))
           (should (string-match-p "\\bhello\\b" hello-text))
@@ -146,10 +146,10 @@
                (cl-flet ((result () (lambda () (push (launcher-dictionary-real--result) results))))
                  (push (launcher-gui-tool--run
                         #'launcher-buffer
-                        (list 's-v (snap) 'return (snap "45-dictionary-unicode") (result)
+                        (list 's-v (snap) #'ignore 'return (snap "45-dictionary-unicode") (result)
                               'escape))
                        outcomes)
-                 (push (launcher-gui-tool--run #'launcher (list "d hello" 'return))
+                 (push (launcher-gui-tool--run #'launcher (list "d hello" #'ignore 'return))
                        outcomes)
                  (funcall (snap "46-dictionary-minibuffer-result"))
                  (funcall (result))))))
@@ -158,7 +158,7 @@
         (message "Unicode results: %S" results)
         (should (equal '(quit returned) outcomes))
         (pcase-let ((`(,pasted ,shown ,popped) states))
-          (should (equal "café" (plist-get pasted :input)))
+          (should (equal "d café" (plist-get pasted :input)))
           (should (eq 'result (plist-get shown :view)))
           (should (equal launcher-osx-dictionary-buffer-name
                          (buffer-name (plist-get shown :buffer))))

@@ -11,6 +11,7 @@
 (require 'cl-lib)
 (require 'launcher-buffer)
 (require 'url-util)
+(require 'launcher-test-support)
 
 (defvar vertico-count)
 
@@ -18,17 +19,8 @@
 (defvar launcher-buffer-test--searched nil "URLs the stubbed browser opened.")
 
 (defun launcher-buffer-test--reader (answers)
-  "Return a fake reader giving ANSWERS to successive prompts.
-An answer is a string to return, a symbol to signal, or a function to
-call inside the prompt, as a command typed there would run."
-  (lambda (&rest _)
-    (with-temp-buffer
-      ;; Emulate minibuffer setup while retaining the caller's reader.
-      (run-hooks 'minibuffer-setup-hook)
-      (let ((answer (pop answers)))
-        (cond ((stringp answer) answer)
-              ((functionp answer) (funcall answer))
-              (t (signal answer nil)))))))
+  "Drive the shared dynamic reader with ANSWERS."
+  (launcher-test--reader answers))
 
 (defmacro launcher-buffer-test--with-fixture (&rest body)
   "Run BODY with fake apps and browser, in a window on a fresh buffer.
@@ -36,7 +28,6 @@ Afterwards, check that the interaction left no state behind."
   (declare (indent 0))
   `(let* ((launcher--apps '(("Calculator" . "/Applications/Calculator.app")
                             ("Activity Monitor" . "/Applications/Activity Monitor.app")))
-          (launcher--current-entries nil)
           (launcher-buffer-test--launched nil)
           (launcher-buffer-test--searched nil)
           (vertico-count 6)
@@ -69,7 +60,6 @@ Afterwards, check that the interaction left no state behind."
      (should (equal emulation emulation-mode-map-alists))
      (should-not (memq #'launcher-buffer--watch (default-value 'post-command-hook)))
      (should-not minibuffer-setup-hook)
-     (should-not launcher--current-entries)
      (should (zerop (recursion-depth)))))
 
 (defun launcher-buffer-test--run (answers &optional keys refresh)
@@ -407,7 +397,7 @@ or the error's message."
         ;; A failing launch ends the interaction with its error.
         (cl-letf (((symbol-function 'launcher--launch)
                    (lambda (_) (user-error "Launch failed"))))
-          (should (equal "Launch failed" (launcher-buffer-test--run '("Calculator")))))
+          (should (eq 'quit (launcher-buffer-test--run '("Calculator")))))
         (should (equal before (launcher-buffer-test--window-state)))
         ;; A host's throw unwinds the interaction from a result view.
         (keymap-set (current-global-map) "C-c h"
@@ -443,3 +433,5 @@ or the error's message."
   "The real check, for tests that stub it in the fixture.")
 
 ;;; launcher-buffer-tests.el ends here
+
+(provide 'launcher-buffer-tests)

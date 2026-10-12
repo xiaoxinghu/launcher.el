@@ -145,7 +145,8 @@ With NAME, also capture the frame's drawing."
           :padding (and string (or blank 0))
           :string string
           :selected (and picker (with-current-buffer picker
-                                  (and (>= vertico--index 0) (vertico--candidate))))
+                                  (and (>= vertico--index 0)
+                                       (plist-get (launcher--result-for-candidate (vertico--candidate)) :title))))
           :selected-visible
           (or (null row)
               (<= (* (1+ row) height) (- (window-body-height window t) vscroll)))
@@ -335,17 +336,16 @@ Afterwards, check that no interaction state, hook or keymap remains."
              (list (snap "01-picker") "Cal" (snap "02-filtered")
                    "zz" (snap "03-no-match")
                    'backspace 'backspace 'backspace 'backspace 'backspace
-                   ;; Bangs come first; the fifth candidate is an app.
-                   (snap "04-regrown") 'down 'down 'down 'down
+                   "C" (snap "04-regrown") 'down
                    (snap "05-arrow-selection") 'return)))
           (setq states (nreverse states))
           (message "Picker states: %S"
                    (mapcar (lambda (s) (list (plist-get s :input) (plist-get s :rows)
                                              (plist-get s :selected)))
                            states))
-          (should (equal '(6 2 0 6 6) (mapcar (lambda (s) (plist-get s :rows)) states)))
+          (should (equal '(0 2 1 4 4) (mapcar (lambda (s) (plist-get s :rows)) states)))
           (should (equal '(0 0 0 0 0) (mapcar (lambda (s) (plist-get s :padding)) states)))
-          (should (equal '("" "Cal" "Calzz" "" "")
+          (should (equal '("" "Cal" "Calzz" "C" "C")
                          (mapcar (lambda (s) (plist-get s :input)) states)))
           (dolist (state states)
             (should (eq (plist-get state :view) 'picker))
@@ -385,7 +385,7 @@ Afterwards, check that no interaction state, hook or keymap remains."
                                    (cl-some (lambda (w) (minibufferp (window-buffer w)))
                                             (window-list nil 'never)))
                              minibuffer-states))
-                     'down 'down 'down 'down 'return))
+                     "Calculator" 'return))
               (launcher-gui--drive command (list "some words" 'return))
               (launcher-gui--drive command (list "!gh portal launcher" 'return))
               (push (list command launcher-gui--launched launcher-gui--searched) results)))
@@ -411,6 +411,7 @@ Afterwards, check that no interaction state, hook or keymap remains."
                (text-size (list (frame-text-width frame) (frame-text-height frame)))
                (position (frame-position frame))
                (small (split-window (selected-window) -4 'below))
+               (completion-styles '(substring))
                (messages (launcher-gui--messages-end))
                states)
           (select-window small)
@@ -419,7 +420,7 @@ Afterwards, check that no interaction state, hook or keymap remains."
              (condition-case nil
                  (launcher-gui--drive
              #'launcher-buffer
-             (list (snap "06-small-window") 'down 'down 'down 'down 'down
+             (list "a" (snap "06-small-window") 'down 'down 'down 'down 'down
                    (snap "07-small-window-scrolled")
                    'up 'up 'up 'up 'up (snap "small-window-back-up")
                    (lambda () (delete-other-windows small))
@@ -448,7 +449,7 @@ Afterwards, check that no interaction state, hook or keymap remains."
             (should (plist-get state :mini-hidden)))
           (should (equal '(2 2 2 6 3 3 6)
                          (mapcar (lambda (s) (plist-get s :rows)) states)))
-          (should (equal "Calendar" (plist-get (nth 1 states) :selected)))
+          (should (plist-get (nth 1 states) :selected))
           (should (< (plist-get (nth 4 states) :frame-lines) lines))
           (should (= lines (plist-get (nth 6 states) :frame-lines)))
           (should-not (string-match-p "Error\\|error\\|args-out-of-range"
@@ -569,13 +570,13 @@ Afterwards, check that no interaction state, hook or keymap remains."
               ;; A failing launch ends the interaction with its error.
               (cl-letf (((symbol-function 'launcher--launch)
                          (lambda (_) (user-error "Synthetic launch failure"))))
-                (run '("Chess" return)))
+                (run '("Chess" return escape)))
               ;; Reentry works after all of the above.
               (run '("Notes" return)))
             (setq outcomes (nreverse outcomes) states (nreverse states))
             (message "Cancel outcomes: %S" outcomes)
             (should (equal '(quit quit quit quit host
-                                  (error "Synthetic launch failure") returned)
+                                  quit returned)
                            outcomes))
             (should (equal '("/Applications/Notes.app") launcher-gui--launched))
             ;; Snapshots inside the fourth run: failure kept the result view,

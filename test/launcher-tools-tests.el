@@ -1,714 +1,530 @@
-;;; launcher-tools-tests.el --- Tool routing checks -*- lexical-binding: t; -*-
-
-;; Batch checks of `launcher-tools': validation, the shared router, and
-;; the picker → query → result views of both `launcher' and
-;; `launcher-buffer', with fake handlers returning real buffers.  Fake
-;; readers stand in for the minibuffer, which batch Emacs cannot show:
-;; they run the readers' setup and post-command hooks around typed,
-;; pasted or recalled input and keys.  Vertico's display, native keys
-;; and asynchronous results are checked in launcher-tools-gui-tests.el.
-;; Nothing here launches an app, opens a browser or runs Spotlight.
-
+;;; launcher-tools-tests.el --- Unified query and action checks -*- lexical-binding: t; -*-
 (require 'ert)
 (require 'cl-lib)
-(require 'launcher-buffer)
-(require 'url-util)
-
+(require 'launcher-test-support)
+(require 'launcher-buffer-tests)
 (defvar vertico-count)
 
-(defvar launcher-tools-test--log nil "Events of the current check, newest first.")
-(defvar launcher-tools-test--picker nil "Answers of the fake picker.")
-(defvar launcher-tools-test--query nil "Answers of the fake query reader.")
-(defvar launcher-tools-test-history nil "A user's history variable for a tool.")
+(defun launcher-tools-test--item (id title &optional action)
+  "Make a query result for ID and TITLE."
+  (list :id id :title title :function (or action #'ignore)))
 
-(defconst launcher-tools-test--apps
-  '(("Calculator" . "/Applications/Calculator.app")
-    ("Dictionary" . "/System/Applications/Dictionary.app"))
-  "Fake application index.")
-
-(defun launcher-tools-test--log (&rest event)
-  (push event launcher-tools-test--log))
-
-(defun launcher-tools-test--events (kind)
-  "Return the logged events of KIND, oldest first, without KIND."
-  (mapcar #'cdr (seq-filter (lambda (event) (eq (car event) kind))
-                            (reverse launcher-tools-test--log))))
-
-(defun launcher-tools-test--result (query)
-  "Return a read-only result buffer for QUERY, as a lookup would."
-  (with-current-buffer (get-buffer-create "*launcher tools result*")
-    (let ((inhibit-read-only t))
-      (erase-buffer)
-      (insert "Definition of " query "\n"))
-    (special-mode)
-    (goto-char (point-min))
-    (current-buffer)))
-
-(defun launcher-tools-test--lookup (query)
-  "Fake dictionary handler: log QUERY and return its result buffer."
-  (launcher-tools-test--log 'call query)
-  (launcher-tools-test--result query))
-
-(defconst launcher-tools-test--tools
-  '(("d" :name "Dictionary" :prompt "Word: "
-     :function launcher-tools-test--lookup)
-    ("dd" :name "Thesaurus" :prompt "Word: "
-     :function launcher-tools-test--lookup))
-  "Tools of the checks: prefixes \"d\" and \"dd\".")
-
-(defun launcher-tools-test--step (step)
-  "Run STEP of a fake reader's answer in the current fake minibuffer.
-A string is typed one character per command, a (:paste STRING) is
-inserted by one command, a (:key KEY) runs KEY's binding, a function
-is called and a symbol is signaled.  The reader's post-command hook
-runs after each command, as in the command loop."
-  (pcase step
-    ((pred stringp)
-     (dolist (char (string-to-list step))
-       (insert char)
-       (run-hooks 'post-command-hook)))
-    (`(:paste ,string)
-     (insert string)
-     (run-hooks 'post-command-hook))
-    (`(:key ,key)
-     (let* ((keys (kbd key))
-            (last-command-event (aref keys (1- (length keys)))))
-       (call-interactively (key-binding keys)))
-     (run-hooks 'post-command-hook))
-    ((pred functionp) (funcall step))
-    ((pred symbolp) (signal step nil))
-    (_ (error "Unknown step %S" step))))
-
-(defun launcher-tools-test--answer (answer)
-  "Answer a fake prompt with ANSWER, in its fake minibuffer.
-A string is returned at once, as a completion UI returns its selected
-candidate, and a symbol is signaled.  A list of steps runs them, then
-returns the input, unless a step exits first: by a non-local exit such
-as the router's, or by exiting the minibuffer, which returns the input."
-  (cond ((stringp answer) answer)
-        ((and answer (symbolp answer)) (signal answer nil))
-        (t (catch 'exit
-             (mapc #'launcher-tools-test--step answer))
-           (minibuffer-contents-no-properties))))
-
-(defun launcher-tools-test--picker-reader (prompt _collection &optional _predicate
-                                                  _require-match initial &rest _)
-  "Fake `completing-read-function' answering from the picker's answers."
-  (launcher-tools-test--log 'picker prompt initial)
-  (with-temp-buffer
-    (when initial (insert initial))
-    ;; Emulate minibuffer setup while retaining the caller's reader.
-    (run-hooks 'minibuffer-setup-hook)
-    (launcher-tools-test--answer (pop launcher-tools-test--picker))))
-
-(defun launcher-tools-test--query-reader (prompt &optional initial keymap _read hist
-                                                 &rest _)
-  "Fake `read-from-minibuffer' answering from the query's answers.
-Log the prompt, initial input, history variable, keymap and the notice
-the setup shows, and add a nonempty value to the history."
-  (with-temp-buffer
-    (when initial (insert initial))
-    (use-local-map keymap)
-    (let (notices)
-      (cl-letf (((symbol-function 'message)
-                 (lambda (format &rest args)
-                   (push (apply #'format format args) notices))))
-        (run-hooks 'minibuffer-setup-hook))
-      (launcher-tools-test--log 'query prompt initial hist (car notices) keymap))
-    (let ((value (launcher-tools-test--answer (pop launcher-tools-test--query))))
-      (when (and (stringp value) (not (string-empty-p value))
-                 (symbolp hist) (not (eq hist t)))
-        (add-to-history hist value))
-      value)))
-
-(defmacro launcher-tools-test--with (&rest body)
-  "Run BODY with fake apps, browser, readers and tools, in a fresh window.
-Afterwards, check that no interaction state remains."
-  (declare (indent 0))
-  `(let* ((launcher--apps launcher-tools-test--apps)
-          (launcher--current-entries nil)
-          (launcher--tool-histories (make-hash-table :test #'equal))
-          (launcher-tools launcher-tools-test--tools)
-          (launcher-bangs '(("!g" "Google" "https://www.google.com/search?q=%s")
-                            ("!gh" "GitHub" "https://github.com/search?q=%s")))
-          (launcher-fallback-search-url "https://example.com/?q=%s")
-          (launcher-tools-test--log nil)
-          (launcher-tools-test--picker nil)
-          (launcher-tools-test--query nil)
-          (completing-read-function #'launcher-tools-test--picker-reader)
-          (minibuffer-history nil)
-          (minibuffer-message-timeout 0)
-          (minibuffer-setup-hook nil)
-          (vertico-count 6)
-          (emulation emulation-mode-map-alists)
-          (origin (generate-new-buffer "*launcher tools origin*")))
-     (delete-other-windows)
-     (switch-to-buffer origin)
-     (with-current-buffer origin
-       (dotimes (i 50) (insert (format "Line %d\n" i)))
-       (goto-char (point-min))
-       (forward-line 20))
-     (unwind-protect
-         (cl-letf (((symbol-function 'launcher--launch)
-                    (lambda (path) (launcher-tools-test--log 'launch path)))
-                   ((symbol-function 'browse-url)
-                    (lambda (url &rest _) (launcher-tools-test--log 'search url)))
-                   ((symbol-function 'read-from-minibuffer)
-                    #'launcher-tools-test--query-reader)
-                   ;; Vertico's buffer display needs a graphical minibuffer.
-                   ((symbol-function 'launcher-buffer--check) #'ignore)
-                   ((symbol-function 'launcher-buffer--before-reader) #'ignore)
-                   ((symbol-function 'launcher-buffer--after-reader) #'ignore)
-                   ((symbol-function 'launcher-buffer--query-setup) #'ignore))
-           ,@body)
-       (setq unread-command-events nil)
-       (delete-other-windows)
-       (set-window-dedicated-p nil nil)
-       (switch-to-buffer origin)
-       (when (get-buffer "*launcher tools result*")
-         (kill-buffer "*launcher tools result*"))
-       (kill-buffer origin))
-     (should-not launcher-buffer--session)
-     (should-not launcher--back-function)
-     (should (equal emulation emulation-mode-map-alists))
-     (should-not (memq #'launcher-buffer--watch (default-value 'post-command-hook)))
-     (should-not (memq #'launcher-buffer--follow
-                       (default-value 'pre-redisplay-functions)))
-     (should-not minibuffer-setup-hook)
-     (should-not launcher--current-entries)
-     (should (zerop (recursion-depth)))))
-
-(defun launcher-tools-test--run (command picker &optional query keys)
-  "Run COMMAND with fake PICKER and QUERY answers, then KEYS in views.
-Return its outcome: `accepted', `quit', or the error's message."
-  (setq launcher-tools-test--picker picker
-        launcher-tools-test--query query
-        unread-command-events (and keys (listify-key-sequence (kbd keys))))
-  (prog1 (condition-case err
-             (progn (funcall command) 'accepted)
-           (quit 'quit)
-           (error (error-message-string err)))
-    (should-not launcher-tools-test--picker)
-    (should-not launcher-tools-test--query)))
-
-(defconst launcher-tools-test--commands '(launcher launcher-buffer)
-  "Both entry points.")
-
-;;; Configuration
+(defmacro launcher-tools-test--session (entries tools &rest body)
+  "Evaluate BODY with a fresh query session and clean it up."
+  (declare (indent 2))
+  `(let* ((session (launcher--query-create ,entries (let ((launcher-tools ,tools)) (launcher--tools))))
+          (launcher--query-session session))
+     (unwind-protect (progn ,@body) (launcher--query-close session))))
 
 (ert-deftest launcher-tools-validation ()
-  (let ((launcher-bangs '(("!g" "Google" "https://www.google.com/search?q=%s")))
-        (launcher--tool-histories (make-hash-table :test #'equal)))
-    ;; Each invalid configuration names its problem.
-    (dolist (case '(("d" . "must be a list")
-                    ((("d" :name "D" :prompt "W: " :function ignore) . oops)
-                     . "expected (PREFIX")
-                    (("d") . ":name must")
-                    (("d" :name "D" :prompt) . "expected (PREFIX")
-                    ((d :name "D" :prompt "W: " :function ignore) . "PREFIX must")
-                    (("" :name "D" :prompt "W: " :function ignore) . "PREFIX must")
-                    (("d d" :name "D" :prompt "W: " :function ignore) . "PREFIX must")
-                    ((" d" :name "D" :prompt "W: " :function ignore) . "PREFIX must")
-                    (("d\t" :name "D" :prompt "W: " :function ignore) . "PREFIX must")
-                    (("d " :name "D" :prompt "W: " :function ignore) . "PREFIX must")
-                    (("d" :name "D" :prompt "W: " :fucntion ignore) . "unknown property")
-                    (("d" :prompt "W: " :function ignore) . ":name must")
-                    (("d" :name "" :prompt "W: " :function ignore) . ":name must")
-                    (("d" :name "D" :function ignore) . ":prompt must")
-                    (("d" :name "D" :prompt "W: ") . ":function must")
-                    (("d" :name "D" :prompt "W: " :function :key) . ":function must")
-                    (("d" :name "D" :prompt "W: " :function 42) . ":function must")
-                    (("d" :name "D" :prompt "W: " :function ignore :history "h")
-                     . ":history must")
-                    (("d" :name "D" :prompt "W: " :function ignore :history :h)
-                     . ":history must")))
-      (let ((launcher-tools (if (stringp (car case)) (car case) (list (car case)))))
-        (should (string-match-p (regexp-quote (cdr case))
-                                (cadr (should-error (launcher--tools)
-                                                    :type 'user-error))))))
-    (let ((launcher-tools (cons '("d" :name "D" :prompt "W: " :function ignore) 'oops)))
-      (should (string-match-p "must be a list"
-                              (cadr (should-error (launcher--tools) :type 'user-error)))))
-    ;; Two tools with one prefix, or a tool on a bang's key.
-    (let ((launcher-tools '(("d" :name "A" :prompt "" :function ignore)
-                            ("d" :name "B" :prompt "" :function ignore))))
-      (should (equal (format-message "Two `launcher-tools' entries use the prefix \"d\"")
-                     (cadr (should-error (launcher--tools) :type 'user-error)))))
-    (let ((launcher-tools '(("!g" :name "G" :prompt "" :function ignore))))
-      (should (equal (format-message
-                      "`launcher-tools' prefix \"!g\" is also a key of `launcher-bangs'")
-                     (cadr (should-error (launcher--tools) :type 'user-error)))))
-    ;; Valid: prefixes that share a start, a bang-like prefix, named,
-    ;; undefined, autoloaded and anonymous functions, and history choices.
-    (let* ((closure (let ((n 0)) (lambda (_) (cl-incf n))))
-           (launcher-tools `(("d" :name "D" :prompt "Word: " :function ignore)
-                             ("dd" :name "DD" :prompt "" :function not-yet-defined)
-                             ("!d" :name "Bang D" :prompt "Q: " :function ,closure
-                              :history my-history)
-                             ("Δ" :name "Delta" :prompt "Q: " :function ignore
-                              :history t)))
-           (tools (launcher--tools)))
-      (should (equal '("d" "dd" "!d" "Δ") (mapcar #'launcher--tool-prefix tools)))
-      (should (eq closure (launcher--tool-function (nth 2 tools))))
-      (should (eq 'my-history (launcher--tool-history (nth 2 tools))))
-      (should (eq t (launcher--tool-history (nth 3 tools))))
-      ;; Default histories: one per prefix, kept across interactions,
-      ;; uninterned so that savehist does not save them.
-      (let ((history (launcher--tool-history (car tools))))
-        (should (symbolp history))
-        (should-not (eq history (intern-soft (symbol-name history))))
-        (should (eq history (launcher--tool-history (car (launcher--tools)))))
-        (should-not (eq history (launcher--tool-history (nth 1 tools))))))
-    (let ((launcher-tools nil))
-      (should-not (launcher--tools)))))
+  (dolist (entry '((nil :name "Any" :query ignore)
+                   ("" :name "Any" :query ignore :debounce 0.2)
+                   ("d" :name "Dictionary" :function ignore)
+                   ("d" :name "Dictionary" :query ignore)))
+    (should (launcher--tool-p (launcher--tool-from-entry entry))))
+  (dolist (entry '((nil :name "No entry" :function ignore)
+                   ("" :name "No entry" :function ignore)
+                   (("d" "w") :name "Multiple" :query ignore)
+                   ("d d" :name "Space" :query ignore)
+                   (nil :query ignore)
+                   (nil :name "Bad" :query 42)
+                   (nil :name "Bad" :query ignore :debounce -1)
+                   (nil :name "Bad" :query ignore :debounce "slow")
+                   ("d" :name "Bad" :function 1)
+                   ("d" :name "Bad" :function ignore :history :bad)
+                   ("d" :name "Bad" :function ignore :unknown t)))
+    (should-error (launcher--tool-from-entry entry) :type 'user-error))
+  (dolist (config '((("d" :name "One" :query ignore) ("d" :name "Two" :query ignore))
+                    (("!g" :name "Collision" :query ignore))))
+    (let ((launcher-tools config)) (should-error (launcher--tools) :type 'user-error)))
+  (let ((launcher-tools '((nil :name "One" :query ignore) (nil :name "Two" :query ignore))))
+    (should (= 2 (length (launcher--tools))))))
 
-(ert-deftest launcher-tools-invalid-configuration-fails-before-action ()
-  (launcher-tools-test--with
-    (let ((launcher-tools '(("!g" :name "G" :prompt "" :function ignore)))
-          refreshed)
-      (cl-letf (((symbol-function 'launcher-refresh) (lambda () (setq refreshed t))))
-        (dolist (command launcher-tools-test--commands)
-          (should (string-match-p (format-message "also a key of `launcher-bangs'")
-                                  (launcher-tools-test--run
-                                   (lambda () (funcall command '(4)))
-                                   nil))))
-        (should-not refreshed)
-        (should-not launcher-tools-test--log)))))
+(ert-deftest launcher-tools-prefix-matching-and-body ()
+  (let (calls)
+    (launcher-tools-test--session nil
+        `((nil :name "Any" :query ,(lambda (text) (push (list 'any text) calls)))
+          ("d" :name "Dictionary" :query ,(lambda (text) (push (list 'dictionary text) calls))))
+      (dolist (input '("d" "D hello" "dx hello" "d\thello"))
+        (setq calls nil)
+        (launcher--query-update session input)
+        (should (equal (list (list 'any input)) calls)))
+      (setq calls nil)
+      (launcher--query-update session "d  hello & 中文 ")
+      (should (equal '((dictionary " hello & 中文 ")) calls)))))
 
-;;; Router
+(ert-deftest launcher-tools-empty-input-calls-nothing ()
+  (let ((count 0))
+    (launcher-tools-test--session nil
+        `((nil :name "Any" :query ,(lambda (_) (cl-incf count) nil)))
+      (dolist (input '("" " " " \t\n"))
+        (launcher--query-update session input)
+        (should-not (launcher--query-session-results session)))
+      (should (zerop count)))))
 
-(ert-deftest launcher-tools-route ()
-  (let* ((launcher--tool-histories (make-hash-table :test #'equal))
-         (launcher-tools (append launcher-tools-test--tools
-                                 '(("!d" :name "Bang" :prompt "" :function ignore))))
-         (tools (launcher--tools)))
-    (dolist (case '(("d serendipity" "d" "serendipity")
-                    ("d " "d" "")
-                    ("d  two spaces " "d" " two spaces ")
-                    ("d 中文 café\tword" "d" "中文 café\tword")
-                    ("dd word" "dd" "word")
-                    ("!d word" "!d" "word")
-                    ("d" nil) ("dd" nil) ("D word" nil) ("Dd word" nil)
-                    (" d word" nil) ("d\tword" nil) ("d word" nil)
-                    ("dx word" nil) ("x word" nil) ("!g word" nil) ("" nil)))
-      (let ((route (launcher--route (car case) tools)))
-        (should (equal (and (cadr case) (cdr case))
-                       (and route (list (launcher--tool-prefix (car route))
-                                        (cdr route)))))))
-    (should-not (launcher--route nil tools))
-    (should-not (launcher--route "d word" nil))))
+(ert-deftest launcher-tools-blank-prefixed-query-keeps-placeholder ()
+  (let (calls)
+    (launcher-tools-test--session nil
+        `(("g" :name "Google search" :debounce 0.2
+               :query ,(lambda (text)
+                         (push text calls)
+                         (list (launcher-tools-test--item 'search text)))))
+      (with-temp-buffer
+        (setq-local launcher--query-session session)
+        (setf (launcher--query-session-buffer session) (current-buffer))
+        (cl-letf (((symbol-function 'exit-minibuffer)
+                   (lambda () (ert-fail "An empty tool query must keep the input open"))))
+          (dolist (input '("g " "g   " "g \t"))
+            (erase-buffer) (insert input)
+            (launcher--results-post-command)
+            (let ((results (launcher--query-session-results session)))
+              (should (= 1 (length results)))
+              (should (equal "g" (plist-get (car results) :title)))
+              (should (equal "Google search" (plist-get (car results) :subtitle))))
+            (should-not (overlay-get (launcher--query-session-status-overlay session) 'after-string))
+            (should (zerop (hash-table-count (launcher--query-session-timers session))))
+            (launcher-results-submit)
+            (should (equal input (buffer-string)))
+            (should-not (launcher--query-session-answer session))
+            (should-not calls)))
+        (let (callback)
+          (cl-letf (((symbol-function 'run-at-time)
+                     (lambda (_delay _repeat function &rest args)
+                       (setq callback (cons function args))))
+                    ((symbol-function 'cancel-timer) #'ignore))
+            (erase-buffer) (insert "g hello")
+            (launcher--results-post-command)
+            (should callback)
+            (apply (car callback) (cdr callback))
+            (should (equal '("hello") calls))
+            (should (equal "hello" (plist-get (car (launcher--query-session-results session)) :title)))
+            (launcher--query-close session)))))))
 
-(ert-deftest launcher-tools-collection-has-no-candidates-in-a-query ()
-  (let* ((launcher--tool-histories (make-hash-table :test #'equal))
-         (launcher-tools launcher-tools-test--tools)
-         (collection (launcher--make-collection launcher-tools-test--apps
-                                                (launcher--tools))))
-    (should (equal '("Dictionary") (all-completions "D" collection)))
-    (should (member "Dictionary" (all-completions "" collection)))
-    (dolist (input '("d " "d word" "dd "))
-      (should-not (all-completions input collection))
-      (should (eq t (test-completion input collection))))))
+(ert-deftest launcher-tools-prefix-entry-return-and-tab-enter-selected-tool ()
+  (dolist (command '(launcher-results-submit launcher-results-insert))
+    (let* ((prefix-calls nil) (general-calls nil)
+           (launcher--apps nil) (launcher-show-icons nil)
+           (minibuffer-setup-hook nil)
+           (launcher-tools
+            (cons (list nil :name "General" :query
+                        (lambda (text) (push text general-calls) nil))
+                  (mapcar (lambda (prefix)
+                            (list prefix :name (concat "Tool " prefix) :query
+                                  (lambda (text) (push (list prefix text) prefix-calls) nil)))
+                          '("t" "tt" "ttt"))))
+           (completing-read-function
+            (launcher-test--reader
+             (list (lambda ()
+                     (launcher-test--input "tt")
+                     (should (equal '("tt" "ttt")
+                                    (mapcar (lambda (r) (plist-get r :title))
+                                            (launcher--query-session-results launcher--query-session))))
+                     (launcher-test--input "t")
+                     (let* ((results (launcher--query-session-results launcher--query-session))
+                            (selected (nth 2 results)))
+                       (should (equal '("t" "tt" "ttt") (mapcar (lambda (r) (plist-get r :title)) results)))
+                       (should-not prefix-calls)
+                       (cl-letf (((symbol-function 'launcher--results-current) (lambda () selected)))
+                         (funcall command))
+                       (launcher--results-post-command)
+                       (should (equal "ttt " (buffer-string)))
+                       (should (equal "ttt" (launcher--tool-prefix
+                                             (car (launcher--query-session-route launcher--query-session)))))
+                       (should (= 1 (length (launcher--query-session-results launcher--query-session))))
+                       (should-not (launcher--query-session-answer launcher--query-session))
+                       (should-not prefix-calls)
+                       (should (equal '("t" "tt") general-calls)))
+                     (signal 'quit nil))))))
+      (cl-letf (((symbol-function 'launcher--entries) (lambda (&rest _) nil)))
+        (should (eq 'quit (condition-case nil (launcher) (quit 'quit))))))))
 
-;;; Both entry points
+(ert-deftest launcher-tools-generated-searches-share-prefix-routing ()
+  (let ((launcher-bangs '(("!g" "Google" "https://google.example/?q=%s")
+                          ("!gh" "GitHub" "https://github.example/?q=%s"))) urls)
+    (launcher-tools-test--session nil nil
+      (launcher--query-update session "!g")
+      (should-not (launcher--query-session-route session))
+      (should (equal '("!g" "!gh")
+                     (mapcar (lambda (r) (plist-get r :title)) (launcher--query-session-results session))))
+      (cl-letf (((symbol-function 'browse-url) (lambda (url &rest _) (push url urls))))
+        (dolist (input '("!g emacs" "!gh launcher"))
+          (launcher--query-update session input)
+          (should (= 1 (length (launcher--query-session-results session))))
+          (launcher--result-execute (car (launcher--query-session-results session)))))
+      (should (equal '("https://github.example/?q=launcher" "https://google.example/?q=emacs") urls))
+      (launcher--query-update session "!g ")
+      (should (launcher--query-session-route session))
+      (should (equal '(:input "!g ")
+                     (launcher--result-execute (car (launcher--query-session-results session))))))))
 
-(ert-deftest launcher-tools-query-calls-handler-once ()
-  ;; Typing "d SPC" leaves the picker for the query, with no app or
-  ;; browser action; Return calls the handler once and shows its buffer.
-  (dolist (command launcher-tools-test--commands)
-    (launcher-tools-test--with
-      (should (eq (if (eq command 'launcher) 'accepted 'quit)
-                  (launcher-tools-test--run command
-                                            '(("d serendipity"))
-                                            '(("serendipity" (:key "RET")))
-                                            "C-g")))
-      (should (equal '(("serendipity")) (launcher-tools-test--events 'call)))
-      (should-not (launcher-tools-test--events 'launch))
-      (should-not (launcher-tools-test--events 'search))
-      ;; The router took "d " from the picker, before "serendipity".
-      (let ((query (car (launcher-tools-test--events 'query))))
-        (should (equal "Dictionary — Word: " (nth 0 query)))
-        (should (equal "" (nth 1 query)))
-        (should (eq launcher-query-map (nth 4 query))))
-      ;; The picker's history has no routed input; the tool's has the query.
-      (should-not minibuffer-history)
-      (let ((history (launcher--tool-history (car (launcher--tools)))))
-        (should (equal '("serendipity") (symbol-value history))))
-      (when (eq command 'launcher)
-        ;; Shown by ordinary display after the minibuffer closed.
-        (should (eq (get-buffer "*launcher tools result*")
-                    (window-buffer (selected-window))))))))
+(ert-deftest launcher-tools-explicit-prefix-is-exclusive-without-fallback ()
+  (let (calls)
+    (launcher-tools-test--session '(("Dictionary" . "/Applications/Dictionary.app"))
+        `((nil :name "General" :query ,(lambda (text) (push (list 'general text) calls) nil))
+          ("d" :name "Dictionary" :query ,(lambda (text) (push (list 'dictionary text) calls) nil)))
+      (with-temp-buffer
+        (setq-local launcher--query-session session)
+        (setf (launcher--query-session-buffer session) (current-buffer))
+        (insert "d missing")
+        (launcher--query-update session (buffer-string))
+        (should (equal '((dictionary "missing")) calls))
+        (should-not (launcher--query-session-results session))
+        (launcher-results-submit)
+        (should (string-match-p "No results"
+                                (overlay-get (launcher--query-session-status-overlay session) 'after-string)))
+        (setq calls nil)
+        (erase-buffer) (insert "!gh emacs")
+        (launcher--query-update session (buffer-string))
+        (should-not calls)
+        (should (= 1 (length (launcher--query-session-results session))))
+        (should (equal "!gh" (plist-get (car (launcher--query-session-results session)) :id)))
+        (erase-buffer) (insert "!gh")
+        (launcher--query-update session (buffer-string))
+        (should (equal '((general "!gh")) calls))
+        (should-not (launcher--query-session-route session))
+        (setq calls nil)
+        (should (equal '(:input "!gh ")
+                       (launcher--result-execute (car (launcher--query-session-results session)))))
+        (erase-buffer) (insert "unknown")
+        (launcher--query-update session (buffer-string))
+        (should (equal '((general "unknown")) calls))
+        (should (eq 'fallback (plist-get (car (launcher--query-session-results session)) :id)))))))
 
-(ert-deftest launcher-tools-paste-history-and-initial-input ()
-  ;; However the input starts with "PREFIX SPC", the rest is the query.
-  (dolist (command launcher-tools-test--commands)
-    ;; Each case: the picker's answers, then the expected query.
-    (dolist (case (list (list '(((:paste "d 中文 café  multi word")))
-                              "中文 café  multi word")
-                        (list '(("dd" (:paste " thesaurus"))) "thesaurus")
-                        ;; Recalled history routes too, as M-p would insert it.
-                        (list (list (list (lambda ()
-                                            (insert "d recalled")
-                                            (run-hooks 'post-command-hook))))
-                              "recalled")))
-      (launcher-tools-test--with
-        (launcher-tools-test--run command (car case) '(()) "C-g")
-        (should (equal (list (list (cadr case))) (launcher-tools-test--events 'call)))
-        (should (equal (cadr case) (nth 1 (car (launcher-tools-test--events 'query)))))
-        (should-not (launcher-tools-test--events 'search))))))
+(ert-deftest launcher-tools-prefixed-query-does-not-match-apps-with-orderless ()
+  (let* ((load-path (cons (expand-file-name ".cache/elpa/orderless-1.8"
+                                           (file-name-directory (locate-library "launcher"))) load-path))
+         (completion-styles '(orderless)))
+    (skip-unless (require 'orderless nil t))
+    (launcher-tools-test--session '(("Dictionary" . "/Applications/Dictionary.app"))
+        '(("d" :name "Dictionary" :query
+               (lambda (word) (list (list :id word :title "Definition" :function #'ignore)))))
+      (launcher--query-update session "d dictionary")
+      (should (equal '("Definition")
+                     (mapcar (lambda (r) (plist-get r :title)) (launcher--query-session-results session))))
+      (launcher--query-update session "d")
+      (should (equal '("Dictionary" "d")
+                     (mapcar (lambda (r) (plist-get r :title)) (launcher--query-session-results session)))))))
 
-(ert-deftest launcher-tools-initial-input-routes-without-reading ()
-  (launcher-tools-test--with
-    (let ((tools (launcher--tools)))
-      (should (equal "d word" (launcher--read launcher-tools-test--apps tools "d word")))
-      (should-not (launcher-tools-test--events 'picker))
-      (should-not minibuffer-history))))
+(ert-deftest launcher-tools-immediate-results-publish-without-empty-refresh ()
+  (let (old-candidate publications)
+    (launcher-tools-test--session nil
+        `(("g" :name "Search"
+               :query ,(lambda (text)
+                         (when old-candidate
+                           (should-not (launcher--result-for-candidate old-candidate))
+                           (should-not (launcher--query-session-results launcher--query-session)))
+                         (should (zerop (hash-table-count
+                                         (launcher--query-session-pending launcher--query-session))))
+                         (list (launcher-tools-test--item 'search text)))))
+      (launcher--query-update session "g hello")
+      (setq old-candidate (plist-get (car (launcher--query-session-results session)) :candidate))
+      (let ((publish (symbol-function 'launcher--query-publish)))
+        (cl-letf (((symbol-function 'launcher--query-publish)
+                   (lambda (current)
+                     (funcall publish current)
+                     (push (mapcar (lambda (result) (plist-get result :title))
+                                   (launcher--query-session-results current))
+                           publications)))
+                  ((symbol-function 'redisplay)
+                   (lambda (&rest _) (ert-fail "Immediate queries must not force redisplay"))))
+          (launcher--query-update session "g helloa")))
+      (should (equal '(("helloa")) publications)))))
 
-(ert-deftest launcher-tools-other-input-is-ordinary ()
-  ;; "d" alone, other case, other prefixes and leading or other spaces
-  ;; are app or web input, as without tools.
-  (dolist (command launcher-tools-test--commands)
-    (dolist (case '(("d" search "d") ("D word" search "D word")
-                    ("x word" search "x word") (" d word" search " d word")
-                    ("Dictionary" launch "/System/Applications/Dictionary.app")
-                    ("!g word" search "word")))
-      (launcher-tools-test--with
-        (should (eq 'accepted (launcher-tools-test--run command (list (car case)))))
-        (should-not (launcher-tools-test--events 'call))
-        (should-not (launcher-tools-test--events 'query))
-        (should (equal (list (list (if (eq (nth 1 case) 'launch)
-                                       (nth 2 case)
-                                     (concat (if (string-prefix-p "!g" (car case))
-                                                 "https://www.google.com/search?q="
-                                               "https://example.com/?q=")
-                                             (url-hexify-string (nth 2 case))))))
-                       (launcher-tools-test--events (nth 1 case))))))))
+(ert-deftest launcher-tools-query-progress-waits-runs-and-clears ()
+  (let (callback status-during-query)
+    (cl-letf (((symbol-function 'run-at-time)
+               (lambda (_delay _repeat function &rest args)
+                 (setq callback (cons function args))))
+              ((symbol-function 'cancel-timer) #'ignore))
+      (launcher-tools-test--session nil
+          `(("d" :name "Dictionary" :debounce 0.2
+                 :query ,(lambda (word)
+                           (setq status-during-query
+                                 (gethash 2 (launcher--query-session-pending launcher--query-session)))
+                           (when (equal word "bad") (error "Lookup failed"))
+                           (list (launcher-tools-test--item word "Definition")))))
+        (with-temp-buffer
+          (setq-local launcher--query-session session)
+          (setf (launcher--query-session-buffer session) (current-buffer))
+          (insert "d dictionary")
+          (launcher--query-update session (buffer-string))
+          (let ((overlay (launcher--query-session-status-overlay session)) (old callback))
+            (should (equal "Querying Dictionary..." (gethash 2 (launcher--query-session-pending session))))
+            (launcher-results-submit)
+            (should (string-match-p "Querying Dictionary" (overlay-get overlay 'after-string)))
+            (erase-buffer) (insert "d world")
+            (launcher--query-update session (buffer-string))
+            (apply (car old) (cdr old))
+            (should-not status-during-query)
+            (should (gethash 2 (launcher--query-session-pending session)))
+            (apply (car callback) (cdr callback))
+            (should (equal "Querying Dictionary..." status-during-query))
+            (should-not (gethash 2 (launcher--query-session-pending session)))
+            (should-not (overlay-get overlay 'after-string))
+            (erase-buffer) (insert "d bad")
+            (launcher--query-update session (buffer-string))
+            (apply (car callback) (cdr callback))
+            (should-not (gethash 2 (launcher--query-session-pending session)))
+            (should (string-match-p "Lookup failed" (overlay-get overlay 'after-string)))
+            (erase-buffer)
+            (launcher--query-update session "")
+            (should-not (overlay-get overlay 'after-string))))))))
 
-(ert-deftest launcher-tools-blank-queries-call-nothing ()
-  ;; Typing calls nothing; blank submissions stay in the query.
-  (dolist (command launcher-tools-test--commands)
-    (launcher-tools-test--with
-      (launcher-tools-test--run command
-                                '(("d "))
-                                '(((:key "RET") "  " (:key "RET") "word" (:key "RET")))
-                                "C-g")
-      ;; Spaces typed before the word stay in the query.
-      (should (equal '(("  word")) (launcher-tools-test--events 'call)))
-      (should (= 1 (length (launcher-tools-test--events 'query)))))
-    ;; A blank value returned otherwise is read again, with a notice.
-    (launcher-tools-test--with
-      (launcher-tools-test--run command '(("d ")) '("" "  " "word") "C-g")
-      (should (equal '(("word")) (launcher-tools-test--events 'call)))
-      (should (equal '(nil "Type a query first" "Type a query first")
-                     (mapcar (lambda (query) (nth 3 query))
-                             (launcher-tools-test--events 'query)))))))
+(ert-deftest launcher-tools-order-and-duplicate-titles ()
+  (let (executed)
+    (launcher-tools-test--session '(("calc" . "/Applications/Calculator.app"))
+        `((nil :name "First" :query ,(lambda (_) (list (launcher-tools-test--item 'one "Same" (lambda () (push 'one executed) nil)))))
+          (nil :name "Second" :query ,(lambda (_) (list (launcher-tools-test--item 'one "Same" (lambda () (push 'two executed) nil))))))
+      (launcher--query-update session "calc")
+      (let* ((results (launcher--query-session-results session))
+             (first (nth 1 results)) (second (nth 2 results)))
+        (should (equal '("calc" "Same" "Same")
+                       (mapcar (lambda (r) (plist-get r :title)) results)))
+        (should-not (equal (plist-get first :candidate) (plist-get second :candidate)))
+        (should (eq second (launcher--result-for-candidate (substring-no-properties (plist-get second :candidate)))))
+        (launcher--result-execute second)
+        (should (equal '(two) executed))))))
 
-(defun launcher-tools-test--failing (query)
-  "Handler failing for \"bad\", returning nothing for \"none\"."
-  (launcher-tools-test--log 'call query)
-  (pcase query
-    ("bad" (error "No definition for %s" query))
-    ("none" nil)
-    ("dead" (let ((buffer (generate-new-buffer "dead"))) (kill-buffer buffer) buffer))
-    ("mini" (window-buffer (minibuffer-window)))
-    (_ (launcher-tools-test--result query))))
+(ert-deftest launcher-tools-submit-only-calls-nothing-until-selected ()
+  (let (called)
+    (launcher-tools-test--session nil
+        `(("d" :name "Dictionary" :function ,(lambda (query) (setq called query) nil)))
+      (launcher--query-update session "d hello")
+      (should-not called)
+      (should (= 1 (length (launcher--query-session-results session))))
+      (launcher--result-execute (car (launcher--query-session-results session)))
+      (should (equal "hello" called))
+      (launcher--query-update session "d ")
+      (should (equal '(:input "d ")
+                     (launcher--result-execute (car (launcher--query-session-results session)))))
+      (should (equal "hello" called)))))
 
-(ert-deftest launcher-tools-failures-keep-the-query ()
-  ;; Failures are reported in the query, which keeps its text; no web
-  ;; search or app launch replaces them.
-  (dolist (command launcher-tools-test--commands)
-    (launcher-tools-test--with
-      (let ((launcher-tools '(("d" :name "Dictionary" :prompt "Word: "
-                               :function launcher-tools-test--failing))))
-        (launcher-tools-test--run command '(("d ")) '("bad" "none" "dead" "mini" "good")
-                                  "C-g")
-        (should (equal '(("bad") ("none") ("dead") ("mini") ("good"))
-                       (launcher-tools-test--events 'call)))
-        (let ((queries (launcher-tools-test--events 'query)))
-          (should (equal '("" "bad" "none" "dead" "mini")
-                         (mapcar (lambda (query) (nth 1 query)) queries)))
-          (should-not (nth 3 (nth 0 queries)))
-          (should (equal "Dictionary failed: No definition for bad" (nth 3 (nth 1 queries))))
-          (should (string-match-p "\\`Dictionary failed: Dictionary returned nil instead"
-                                  (nth 3 (nth 2 queries))))
-          (should (string-match-p "returned #<killed buffer> instead" (nth 3 (nth 3 queries))))
-          (should (string-match-p "instead of a live buffer" (nth 3 (nth 4 queries)))))
-        (should-not (launcher-tools-test--events 'search))
-        (should-not (launcher-tools-test--events 'launch))))))
-
-(ert-deftest launcher-tools-missing-or-autoloaded-handlers ()
-  (let* ((directory (make-temp-file "launcher-tools" t))
-         (file (expand-file-name "launcher-tools-test-autoloaded.el" directory)))
+(ert-deftest launcher-tools-result-and-action-validation ()
+  (let ((tool (launcher--tool-make :name "Test")))
+    (dolist (results '(((:id x :title "Missing action"))
+                       ((:id x :title "A" :function ignore) (:id x :title "B" :function ignore))
+                       ((:title "Missing id" :function ignore))
+                       ((:id x :title "A" :function ignore :subtitle 3))))
+      (should-error (launcher--query-validate-results results tool))))
+  (dolist (value '(1 "text" (:input 3) (:input "ok" :extra t)))
+    (should-error (launcher--result-execute (launcher-tools-test--item 'x "X" (lambda () value)))))
+  (should-not (launcher--result-execute (launcher-tools-test--item 'x "X")))
+  (should (equal '(:input "!g ")
+                 (launcher--result-execute (launcher-tools-test--item 'x "X" (lambda () '(:input "!g "))))))
+  (let ((buffer (generate-new-buffer " *tool-test*")))
     (unwind-protect
-        (progn
-          (with-temp-file file
-            (insert "(defun launcher-tools-test-autoloaded (query)
-  (launcher-tools-test--log 'call query)
-  (launcher-tools-test--result query))
-(provide 'launcher-tools-test-autoloaded)\n"))
-          (autoload 'launcher-tools-test-autoloaded file)
-          (autoload 'launcher-tools-test-unloadable
-            (expand-file-name "missing" directory))
-          (dolist (command launcher-tools-test--commands)
-            (launcher-tools-test--with
-              (let ((launcher-tools
-                     '(("m" :name "Missing" :prompt "Q: "
-                        :function launcher-tools-test-undefined)
-                       ("u" :name "Unloadable" :prompt "Q: "
-                        :function launcher-tools-test-unloadable)
-                       ("a" :name "Autoloaded" :prompt "Q: "
-                        :function launcher-tools-test-autoloaded))))
-                ;; Back from each failing query; the picker shows its prefix.
-                (launcher-tools-test--run
-                 command '(("m ") ((:key "DEL") "u ") ((:key "DEL") "a "))
-                 `("word" ,(list #'launcher-back) "word" ,(list #'launcher-back) "word")
-                 "C-g")
-                (let ((notices (mapcar (lambda (q) (nth 3 q))
-                                       (launcher-tools-test--events 'query))))
-                  (should (equal (format-message "Missing failed: Missing needs \
-`launcher-tools-test-undefined', which is not defined")
-                                 (nth 1 notices)))
-                  (should (string-match-p "\\`Unloadable failed: Cannot open load file"
-                                          (nth 3 notices))))
-                (should (equal '(("word")) (launcher-tools-test--events 'call)))
-                (should-not (launcher-tools-test--events 'search))))))
-      (fmakunbound 'launcher-tools-test-autoloaded)
-      (fmakunbound 'launcher-tools-test-unloadable)
-      (setq features (delq 'launcher-tools-test-autoloaded features))
-      (delete-directory directory t))))
+        (should (eq buffer (launcher--result-execute (launcher-tools-test--item 'x "X" (lambda () buffer)))))
+      (kill-buffer buffer))
+    (should-error (launcher--result-execute (launcher-tools-test--item 'x "X" (lambda () buffer))))))
 
-(ert-deftest launcher-tools-back-from-query-to-picker ()
-  ;; C-c C-b, or DEL in an empty query, returns to the picker, which
-  ;; shows the prefix without its space.  DEL in a nonempty query edits.
-  (dolist (command launcher-tools-test--commands)
-    (dolist (back `((,#'launcher-back) ((:key "C-c C-b")) ((:key "DEL"))
-                    ("x" (:key "DEL") (:key "DEL"))))
-      (launcher-tools-test--with
-        (should (eq 'accepted
-                    (launcher-tools-test--run command
-                                              '(("d ") "Calculator")
-                                              (list back))))
-        (should (equal '(("Launch: " nil) ("Launch: " "d"))
-                       (launcher-tools-test--events 'picker)))
-        (should (equal '(("/Applications/Calculator.app"))
-                       (launcher-tools-test--events 'launch)))
-        (should-not (launcher-tools-test--events 'call))))))
+(ert-deftest launcher-tools-query-errors-are-isolated ()
+  (launcher-tools-test--session nil
+      '((nil :name "Bad" :query (lambda (_) (error "Broken query")))
+        (nil :name "Good" :query (lambda (_) (list (list :id 'good :title "Good" :function #'ignore)))))
+    (launcher--query-update session "hello")
+    (should (= 1 (length (launcher--query-session-results session))))
+    (should (string-match-p "Bad: Broken query" (gethash 2 (launcher--query-session-errors session))))))
 
-(ert-deftest launcher-tools-quit-from-every-reading-view ()
-  (dolist (command launcher-tools-test--commands)
-    ;; Each case: the picker's answers, then the query's.
-    (dolist (case '(((quit)) ((("d ")) (quit)) ((("d ")) (("word" quit)))))
-      (launcher-tools-test--with
-        (should (eq 'quit (launcher-tools-test--run command (car case) (cadr case))))
-        (should-not (launcher-tools-test--events 'call))
-        (should-not (launcher-tools-test--events 'search))))))
+(ert-deftest launcher-tools-invalid-query-results-do-not-leak-or-break-other-tools ()
+  (dolist (invalid '(42 ((:id broken :title "Missing action"))
+                       ((:id same :title "A" :function ignore)
+                        (:id same :title "B" :function ignore))))
+    (launcher-tools-test--session nil
+        `((nil :name "Invalid" :query ,(lambda (_) invalid))
+          (nil :name "Good" :query ,(lambda (_) (list (launcher-tools-test--item 'good "Good")))))
+      (launcher--query-update session "hello")
+      (should (equal '(good) (mapcar (lambda (r) (plist-get r :id))
+                                    (launcher--query-session-results session))))
+      (should (gethash 2 (launcher--query-session-errors session))))))
 
-(ert-deftest launcher-tools-without-apps ()
-  ;; Without mdfind, or with no apps found, tools stay reachable and the
-  ;; picker says apps are unavailable.  Nothing runs Spotlight here.
-  (dolist (command launcher-tools-test--commands)
-    (dolist (setup (list (lambda () (setq exec-path nil))
-                         (lambda () (fset 'launcher--collect-paths #'ignore))))
-      (launcher-tools-test--with
-        (let ((launcher--apps nil)
-              (exec-path exec-path)
-              (collect (symbol-function 'launcher--collect-paths))
-              messages)
-          (unwind-protect
-              (cl-letf (((symbol-function 'message)
-                         (lambda (format &rest args)
-                           (push (apply #'format format args) messages))))
-                (funcall setup)
-                (launcher-tools-test--run command '(("d ")) '("word") "C-g"))
-            (fset 'launcher--collect-paths collect))
-          (should (equal '(("Launch (apps unavailable): " nil))
-                         (launcher-tools-test--events 'picker)))
-          (should (equal '(("word")) (launcher-tools-test--events 'call)))
-          (should (seq-find (lambda (m) (string-prefix-p "Launcher apps unavailable: " m))
-                            messages)))))
-    ;; Without tools, discovery errors end the command as before.
-    (launcher-tools-test--with
-      (let ((launcher--apps nil)
-            (launcher-tools nil)
-            (exec-path nil))
-        (should (equal (format-message "Cannot find `mdfind` in PATH")
-                       (launcher-tools-test--run command nil)))
-        (should-not launcher-tools-test--log)))))
+(ert-deftest launcher-tools-debounce-and-stale-callbacks ()
+  (let (scheduled canceled called)
+    (cl-letf (((symbol-function 'run-at-time)
+               (lambda (_delay _repeat function &rest args)
+                 (let ((timer (cons function args))) (push timer scheduled) timer)))
+              ((symbol-function 'cancel-timer) (lambda (timer) (push timer canceled))))
+      (launcher-tools-test--session nil
+          `((nil :name "Slow" :debounce 0.2
+                 :query ,(lambda (text) (push text called) (list (launcher-tools-test--item text text)))))
+        (launcher--query-update session "old")
+        (should-not called)
+        (let ((old (car scheduled)))
+          (launcher--query-update session "new")
+          (should (memq old canceled))
+          (apply (car old) (cdr old))
+          (should-not called)
+          (let ((new (car scheduled)))
+            (apply (car new) (cdr new))
+            (should (equal '("new") called))
+            (should (equal "new" (plist-get (car (launcher--query-session-results session)) :title)))
+            (launcher--query-update session "new")
+            (should (= 2 (length scheduled)))
+            (launcher--query-update session "last")
+            (should (= 1 (length (launcher--query-session-results session))))
+            (let ((last (car scheduled)))
+              (launcher--query-close session)
+              (should (memq last canceled))
+              (apply (car last) (cdr last))
+              (should (equal '("new") called)))))))))
 
-(ert-deftest launcher-tools-are-snapshotted-per-interaction ()
-  ;; Changing `launcher-tools' during an interaction affects the next one.
-  (dolist (command launcher-tools-test--commands)
-    (launcher-tools-test--with
-      (launcher-tools-test--run
-       command '(("d "))
-       (list (list (lambda () (setq launcher-tools nil)) "word"))
-       "C-g")
-      (should (equal '(("word")) (launcher-tools-test--events 'call))))))
+(ert-deftest launcher-tools-fallback-tracks-debounced-results ()
+  (let (callback)
+    (cl-letf (((symbol-function 'run-at-time)
+               (lambda (_delay _repeat function &rest args)
+                 (setq callback (cons function args))))
+              ((symbol-function 'cancel-timer) #'ignore))
+      (launcher-tools-test--session nil
+          '((nil :name "Slow" :debounce 0.2
+                 :query (lambda (text)
+                          (unless (equal text "empty")
+                            (list (list :id 'match :title "Match" :function #'ignore))))))
+        (launcher--query-update session "hello")
+        (should (eq 'fallback (plist-get (car (launcher--query-session-results session)) :id)))
+        (apply (car callback) (cdr callback))
+        (should (equal '(match) (mapcar (lambda (r) (plist-get r :id))
+                                      (launcher--query-session-results session))))
+        (launcher--query-update session "empty")
+        (apply (car callback) (cdr callback))
+        (should (eq 'fallback (plist-get (car (launcher--query-session-results session)) :id)))))))
 
-(ert-deftest launcher-tools-closures-and-user-history ()
-  (dolist (command launcher-tools-test--commands)
-    (launcher-tools-test--with
-      (let* ((calls nil)
-             (launcher-tools-test-history nil)
-             (launcher-tools
-              `(("!d" :name "Closure" :prompt "Q: "
-                 :function ,(lambda (query)
-                              (push query calls)
-                              (launcher-tools-test--result query))
-                 :history launcher-tools-test-history))))
-        (launcher-tools-test--run command '(("!d ")) '("one") "C-g")
-        (launcher-tools-test--run command '(((:paste "!d two"))) '(()) "C-g")
-        (should (equal '("two" "one") calls))
-        (should (equal '("two" "one") launcher-tools-test-history))
-        (should (eq 'launcher-tools-test-history
-                    (nth 2 (car (launcher-tools-test--events 'query)))))))))
+(ert-deftest launcher-tools-immediate-query-not-held-by-debounce ()
+  (let (scheduled calls)
+    (cl-letf (((symbol-function 'run-at-time) (lambda (&rest args) (push args scheduled) 'timer))
+              ((symbol-function 'cancel-timer) #'ignore))
+      (launcher-tools-test--session nil
+          `((nil :name "Slow" :debounce 1 :query ,(lambda (_) (push 'slow calls) nil))
+            (nil :name "Fast" :query ,(lambda (_) (push 'fast calls) nil)))
+        (launcher--query-update session "hello")
+        (should (equal '(fast) calls))
+        (should (= 1 (length scheduled)))))))
 
-(ert-deftest launcher-tools-custom-space-binding ()
-  ;; A custom Space binding in the user's completion keys is kept: here
-  ;; Space does not insert, so typing "d SPC" does not route, but pasting
-  ;; "d word" does.
-  (launcher-tools-test--with
-    (let ((map (make-sparse-keymap))
-          (reader (symbol-function 'launcher-tools-test--picker-reader)))
-      (keymap-set map "SPC" #'ignore)
-      (keymap-set map "d" #'self-insert-command)
-      (cl-letf (((symbol-function 'launcher-tools-test--picker-reader)
-                 (lambda (&rest args)
-                   (let ((minibuffer-setup-hook
-                          (cons (lambda () (use-local-map map)) minibuffer-setup-hook)))
-                     (apply reader args)))))
-        (should (eq 'accepted
-                    (launcher-tools-test--run
-                     #'launcher '(((:key "d") (:key "SPC") "word")))))
-        (should (equal '(("https://example.com/?q=dword"))
-                       (launcher-tools-test--events 'search)))
-        (should-not (launcher-tools-test--events 'query))
-        (setq launcher-tools-test--log nil)
-        (launcher-tools-test--run #'launcher '(((:paste "d word"))) '(()))
-        (should (equal '(("word")) (launcher-tools-test--events 'call)))))))
+(ert-deftest launcher-tools-no-query-on-navigation ()
+  (let ((count 0) (launcher--apps nil) (launcher-show-icons nil)
+        (minibuffer-setup-hook nil))
+    (let ((launcher-tools `((nil :name "Count" :query ,(lambda (_) (cl-incf count) nil))))
+          (completing-read-function
+           (launcher-test--reader
+            (list (lambda ()
+                    (launcher-test--input "hello")
+                    (dotimes (_ 5) (launcher--results-post-command))
+                    (launcher-test--submit "hello") nil)))))
+      (cl-letf (((symbol-function 'launcher--entries) (lambda (&rest _) nil))
+                ((symbol-function 'browse-url) #'ignore))
+        (launcher)))
+    (should (= 1 count))))
 
-(ert-deftest launcher-tools-query-keys ()
-  ;; The query reads plain text: Return exits only with a nonblank
-  ;; query, and DEL leaves only an empty one.
-  (with-temp-buffer
-    (use-local-map launcher-query-map)
-    (let ((launcher--back-function (lambda () (throw 'launcher-tools-test 'back))))
-      (cl-letf (((symbol-function 'minibuffer-message) #'ignore))
-        (dolist (key '("RET" "C-j"))
-          (should (eq 'launcher-query-submit (key-binding (kbd key))))
-          (erase-buffer)
-          (insert " \t ")
-          (should (eq 'stayed (catch 'exit (call-interactively #'launcher-query-submit)
-                                     'stayed)))
-          (erase-buffer)
-          (insert "word")
-          (should-not (catch 'exit (call-interactively #'launcher-query-submit)
-                             'stayed)))
-        (should (eq 'launcher-query-delete-backward-char (key-binding (kbd "DEL"))))
-        (should (eq 'launcher-back (key-binding (kbd "C-c C-b"))))
-        (should (eq 'self-insert-command (key-binding (kbd "SPC"))))
-        (should (eq 'self-insert-command (key-binding (kbd "?"))))
-        (erase-buffer)
-        (insert "ab")
-        (call-interactively #'launcher-query-delete-backward-char)
-        (should (equal "a" (buffer-string)))
-        (call-interactively #'launcher-query-delete-backward-char)
-        (should (equal "" (buffer-string)))
-        (should (eq 'back (catch 'launcher-tools-test
-                            (call-interactively #'launcher-query-delete-backward-char))))))))
+(ert-deftest launcher-tools-action-error-keeps-input-and-retries ()
+  (let ((count 0) (launcher--apps nil) (launcher-show-icons nil)
+        (minibuffer-setup-hook nil))
+    (let ((launcher-tools `(("d" :name "Test" :function ,(lambda (_)
+                                                            (when (= (cl-incf count) 1) (error "Try again")) nil))))
+          (completing-read-function
+           (launcher-test--reader
+            (list (lambda ()
+                    (launcher-test--submit "d hello")
+                    (should (equal "d hello" (buffer-string)))
+                    (should (string-match-p "Try again" (overlay-get (launcher--query-session-status-overlay launcher--query-session) 'after-string)))
+                    (should-not (launcher--query-session-answer launcher--query-session))
+                    (launcher-test--submit "d hello") nil)))))
+      (cl-letf (((symbol-function 'launcher--entries) (lambda (&rest _) nil))) (launcher)))
+    (should (= 2 count))))
 
-;;; launcher-buffer views
+(ert-deftest launcher-tools-history-retains-prefix ()
+  (let ((history (make-symbol "tool-history")) (minibuffer-history '("ordinary")))
+    (set history nil)
+    (launcher-tools-test--session nil
+        `(("d" :name "Dictionary" :function ignore :history ,history))
+      (launcher--query-update session "d hello")
+      (launcher--results-record-history session (car (launcher--query-session-results session)))
+      (should (equal '("hello") (symbol-value history)))
+      (should (equal '("ordinary") minibuffer-history))
+      (with-temp-buffer
+        (launcher--results-history session "d ")
+        (should (equal '("d hello") launcher--input-history))
+        (launcher--results-history session "word")
+        (should (equal '("ordinary") launcher--input-history))))))
 
-(ert-deftest launcher-tools-buffer-result-back-and-retry ()
-  ;; Result → query keeps the submitted text without calling again;
-  ;; query → picker shows the prefix.
-  (launcher-tools-test--with
-    (let ((window (selected-window))
-          (before (list (window-buffer) (window-start) (window-point)))
-          views)
-      (should (eq 'accepted
-                  (launcher-tools-test--run
-                   #'launcher-buffer
-                   '(("d serendipity") "Calculator")
-                   (list "serendipity"
-                         (list (lambda ()
-                                 (push (launcher-buffer--session-view launcher-buffer--session)
-                                       views)
-                                 (push (launcher-buffer--session-history
-                                        launcher-buffer--session)
-                                       views))
-                               #'launcher-back))
-                   "C-c C-b")))
-      (should (equal '(("serendipity")) (launcher-tools-test--events 'call)))
-      (should (equal '("" "serendipity")
-                     (mapcar (lambda (q) (nth 1 q)) (launcher-tools-test--events 'query))))
-      (should (equal '(("Launch: " nil) ("Launch: " "d"))
-                     (launcher-tools-test--events 'picker)))
-      (pcase-let ((`(,history (query ,tool ,input)) views))
-        (should (equal "d" (launcher--tool-prefix tool)))
-        (should (equal "serendipity" input))
-        (should (equal '((picker "d")) history)))
-      (should (equal '(("/Applications/Calculator.app"))
-                     (launcher-tools-test--events 'launch)))
-      (should (equal before (list (window-buffer window) (window-start window)
-                                  (window-point window))))
-      ;; The result keeps its buffer, mode and contents.
-      (let ((result (get-buffer "*launcher tools result*")))
-        (should (buffer-live-p result))
-        (should (eq 'special-mode (buffer-local-value 'major-mode result)))
-        (should (equal "Definition of serendipity\n"
-                       (with-current-buffer result (buffer-string))))))))
+(ert-deftest launcher-tools-calculator-arithmetic-and-copy ()
+  (dolist (case '(("1 + 2 * 3" . "7") ("(1+2)*3" . "9")
+                  ("= .5 + 1.25" . "1.75") ("1 / 2" . "0.5")
+                  ("2 * -3" . "-6") ("= 42" . "42") ("= 0" . "0")))
+    (let* ((kill-ring nil) (result (car (launcher--calculator-query (car case)))))
+      (should result)
+      (launcher--result-execute result)
+      (should (equal (cdr case) (car kill-ring)))))
+  (dolist (input '("hello" "42" "" "d hello"))
+    (should-not (launcher--calculator-query input))))
 
-(ert-deftest launcher-tools-buffer-quit-and-kill-from-result ()
-  (launcher-tools-test--with
-    (let ((before (list (window-buffer) (window-start) (window-point))))
-      ;; Escape and C-g quit a result view.
-      (dolist (keys '("C-g" "<escape>"))
-        (should (eq 'quit (launcher-tools-test--run #'launcher-buffer
-                                                    '(("d ")) '("word") keys)))
-        (should (equal before (list (window-buffer) (window-start) (window-point)))))
-      ;; Killing the result returns to its query, which keeps its text.
-      (setq launcher-tools-test--log nil)
-      (keymap-set (current-global-map) "C-c k"
-                  (lambda () (interactive) (kill-buffer (current-buffer))))
-      (unwind-protect
-          (should (eq 'quit (launcher-tools-test--run #'launcher-buffer
-                                                      '(("d ")) '("word" (quit))
-                                                      "C-c k")))
-        (keymap-global-unset "C-c k"))
-      (should (equal '("" "word")
-                     (mapcar (lambda (q) (nth 1 q)) (launcher-tools-test--events 'query))))
-      (should (equal '(("word")) (launcher-tools-test--events 'call)))
-      (should (equal before (list (window-buffer) (window-start) (window-point)))))))
+(ert-deftest launcher-tools-calculator-invalid-keeps-input-and-copies-nothing ()
+  (dolist (input '("3-1.5-" "1 +" "(1+2" "(" "1 2 + 3" "1..2 + 3"
+                  "1 / 0" "1 / 0 +" "=" "= " "= (message 1)"))
+    (let* ((kill-ring '("previous"))
+           (result (car (launcher--calculator-query input))))
+      (should (equal "= INVALID" (plist-get result :title)))
+      (should-error (launcher--result-execute result) :type 'user-error)
+      (should (equal '("previous") kill-ring)))))
 
-(ert-deftest launcher-tools-buffer-keeps-preexisting-results ()
-  ;; A handler may return a buffer it already had, shown elsewhere:
-  ;; Launcher shows it, then leaves it and the other window as they were.
-  (launcher-tools-test--with
-    (let* ((own (get-buffer-create "*launcher tools own*"))
-           (other (split-window nil nil 'below))
-           (launcher-tools `(("d" :name "D" :prompt "W: "
-                              :function ,(lambda (_) own)))))
-      (unwind-protect
-          (progn
-            (with-current-buffer own
-              (dotimes (i 40) (insert (format "Own line %d\n" i)))
-              (goto-char (point-min))
-              (forward-line 10)
-              (read-only-mode 1))
-            (set-window-buffer other own)
-            (set-window-point other (with-current-buffer own (point)))
-            (let ((other-state (list (window-buffer other) (window-start other)
-                                     (window-point other)))
-                  (contents (with-current-buffer own (buffer-string))))
-              (should (eq 'quit (launcher-tools-test--run #'launcher-buffer
-                                                          '(("d ")) '("w" (quit))
-                                                          "C-c C-b")))
-              (should (buffer-live-p own))
-              (should (equal contents (with-current-buffer own (buffer-string))))
-              (should (buffer-local-value 'buffer-read-only own))
-              (should (equal other-state (list (window-buffer other) (window-start other)
-                                               (window-point other))))))
-        (kill-buffer own)))))
+(ert-deftest launcher-tools-calculator-editing-never-falls-back-to-search ()
+  (launcher-tools-test--session nil nil
+    (let (candidate)
+      (dolist (case '(("3-1.5" . "= 1.5") ("3-1.5-" . "= INVALID")
+                      ("3-1.5-1" . "= 0.5")))
+        (launcher--query-update session (car case))
+        (let* ((results (launcher--query-session-results session))
+               (result (car results)))
+          (should (= 1 (length results)))
+          (should (eq 'calculation (plist-get result :id)))
+          (should (equal (cdr case) (plist-get result :title)))
+          (when candidate (should (equal candidate (plist-get result :candidate))))
+          (setq candidate (plist-get result :candidate)))))))
+
+(ert-deftest launcher-tools-completion-style-keeps-action-results ()
+  (launcher-tools-test--session nil nil
+    (launcher--query-update session "= 1 + 2")
+    (let* ((completion-styles-alist
+            (cons '(launcher-result launcher--results-try launcher--results-all "Test") completion-styles-alist))
+           (completion-category-overrides '((launcher-result (styles launcher-result))))
+           (table (launcher--results-collection session))
+           (matches (completion-all-completions "= 1 + 2" table nil 7)))
+      (setcdr (last matches) nil)
+      (should (= 1 (length matches)))
+      (should (equal "= 3" (get-text-property 0 'display (car matches)))))))
+
+(ert-deftest launcher-tools-stock-selection-retains-query-and-identity ()
+  (let* ((executed nil) (launcher--apps nil) (launcher-show-icons nil)
+         (launcher-tools
+          `((nil :name "Choices" :query
+                 ,(lambda (_) (list (launcher-tools-test--item 'one "Same" (lambda () (push 'one executed) nil))
+                                    (launcher-tools-test--item 'two "Same" (lambda () (push 'two executed) nil)))))))
+         (minibuffer-setup-hook nil)
+         (completing-read-function
+          (lambda (&rest _)
+            (with-temp-buffer
+              (use-local-map (copy-keymap minibuffer-local-completion-map))
+              (run-hooks 'minibuffer-setup-hook)
+              (launcher-test--input "typed query")
+              (let ((candidate (plist-get (nth 1 (launcher--query-session-results launcher--query-session)) :candidate)))
+                (erase-buffer) (insert candidate)
+                (launcher--results-post-command)
+                (should (equal "typed query" (buffer-string)))
+                (should (eq 'two (plist-get (launcher--results-current) :id)))
+                candidate)))))
+    (cl-letf (((symbol-function 'launcher--entries) (lambda (&rest _) nil))) (launcher))
+    (should (equal '(two) executed))))
+
+(ert-deftest launcher-tools-buffer-back-restores-full-input ()
+  (launcher-buffer-test--with-fixture
+    (launcher-buffer-test--with-result-cleanup
+      (let* ((calls 0) restored
+            (launcher-tools `(("d" :name "Dictionary"
+                                  :function ,(lambda (_) (cl-incf calls) (launcher-buffer-test--result))))))
+        (should (eq 'quit
+                    (launcher-buffer-test--run
+                     (list "d hello" (lambda ()
+                                       (setq restored (launcher-buffer--session-view launcher-buffer--session))
+                                       (signal 'quit nil))) "C-c C-b")))
+        (should (equal '(picker "d hello") restored))
+        (should (= 1 calls))))))
 
 (ert-deftest launcher-tools-buffer-follows-only-at-end ()
   ;; A result view follows text added at the end only while its point
@@ -750,4 +566,3 @@ Return its outcome: `accepted', `quit', or the error's message."
       (kill-buffer buffer))))
 
 (provide 'launcher-tools-tests)
-;;; launcher-tools-tests.el ends here

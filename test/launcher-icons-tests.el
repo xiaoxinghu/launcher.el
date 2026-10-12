@@ -9,6 +9,7 @@
 (require 'cl-lib)
 (require 'launcher)
 (require 'launcher-icons)
+(require 'launcher-test-support)
 
 (defvar launcher-icons-test--root nil
   "The temporary directory of a check's fake apps and cache.")
@@ -261,13 +262,12 @@ It is named like the launcher's own, as a shared directory may hold."
       (let* ((calc (launcher-icons-test--app "Calc.app"))
              (launcher--apps (list (cons "Calc" calc)))
              (completing-read-function
-              (lambda (_prompt table &rest _)
-                (should (equal (completion-metadata "" table nil) '(metadata)))
-                (should (equal completion-extra-properties
-                               '(:annotation-function launcher--annotation)))
-                "Calc")))
-        (cl-letf (((symbol-function 'launcher--launch) #'ignore))
-          (launcher))
+              (launcher-test--reader
+               (list (lambda ()
+                       (should (equal completion-extra-properties
+                                      '(:annotation-function launcher--results-annotation)))
+                       "Calc")))))
+        (cl-letf (((symbol-function 'launcher--launch) #'ignore)) (launcher))
         (should-not launcher-icons-test--spawned)
         (should-not (file-exists-p launcher-icon-cache-directory))))))
 
@@ -279,59 +279,61 @@ It is named like the launcher's own, as a shared directory may hold."
   (should (commandp 'launcher-clear-icon-cache))
   (should (file-readable-p launcher-icons--script)))
 
+(defun launcher-icons-test--query-all (entries)
+  "Return a session with all ENTRIES and the bang entry !g for affixation checks."
+  (let* ((session (launcher--query-create entries nil))
+         (launcher--query-session session))
+    (launcher-icons-prepare (mapcar #'cdr entries))
+    (launcher--query-run session 0 (car (launcher--query-session-tools session)) "" 0)
+    (puthash 2 (list (launcher--prefix-result (nth 2 (launcher--query-session-tools session))))
+             (launcher--query-session-slots session))
+    (launcher--query-publish session)
+    session))
+
 (ert-deftest launcher-icons-affixation-keeps-candidates ()
   (launcher-icons-test--with-cache
-    (let* ((launcher-bangs '(("!g" "Google" "https://www.google.com/search?q=%s")))
-           (odd (launcher-icons-test--app "It's $(rm -rf) ; `x` 名前.app"))
+    (let* ((odd (launcher-icons-test--app "It's $(rm -rf) ; `x` 名前.app"))
            (entries (list (cons "Calc" (launcher-icons-test--app "Calc.app"))
-                          (cons "Notes  (a)" (launcher-icons-test--app "a/Notes.app"))
-                          (cons "Notes  (b)" (launcher-icons-test--app "b/Notes.app"))
+                          (cons "Notes (a)" (launcher-icons-test--app "a/Notes.app"))
+                          (cons "Notes (b)" (launcher-icons-test--app "b/Notes.app"))
                           (cons "It's" odd)))
-           (launcher--current-entries entries)
-           (candidates (cons "!g" (mapcar #'car entries))))
-      (should (equal (launcher--completion-properties entries)
-                     '(:affixation-function launcher--affixation)))
+           (launcher--query-session (launcher-icons-test--query-all entries))
+           (candidates (mapcar (lambda (result) (plist-get result :candidate))
+                               (launcher--query-session-results launcher--query-session))))
       (launcher-icons-test--draw)
-      (let ((affixed (launcher--affixation candidates)))
+      (let ((affixed (launcher--results-affixation candidates)))
         (should (equal (mapcar #'car affixed) candidates))
-        (should (equal (nth 2 (car affixed)) "  → Google search"))
-        (should (equal (nth 2 (nth 1 affixed)) (concat "  " (abbreviate-file-name (cdar entries)))))
-        ;; The bang: blank, as large as an icon.
-        (should (equal (get-text-property 0 'display (nth 1 (car affixed)))
+        (should (equal (nth 2 (car affixed)) (concat "  " (abbreviate-file-name (cdar entries)))))
+        (should (equal (nth 2 (car (last affixed))) "  Google"))
+        (should (equal (get-text-property 0 'display (nth 1 (car (last affixed))))
                        '(space :width (20) :height (20))))
-        ;; Each app, duplicates included, has its own icon.
         (let ((files (mapcar (lambda (entry)
-                               (plist-get (cdr (get-text-property 0 'display (nth 1 entry)))
-                                          :file))
-                             (cdr affixed))))
+                              (plist-get (cdr (get-text-property 0 'display (nth 1 entry))) :file))
+                            (butlast affixed))))
           (should (seq-every-p #'stringp files))
-          (should (= (length (delete-dups (copy-sequence files))) 4)))
-        (dolist (entry affixed)
-          (should (equal (substring-no-properties (nth 1 entry)) "  ")))))))
+          (should (= 4 (length (delete-dups (copy-sequence files))))))
+        (dolist (entry affixed) (should (equal (substring-no-properties (nth 1 entry)) "  ")))))))
 
 (ert-deftest launcher-icons-reader-gets-affixation ()
-  ;; Through `launcher', with icons enabled, with stubbed effects.
   (launcher-icons-test--with-cache
     (let* ((calc (launcher-icons-test--app "Calc.app"))
-           (launcher--apps (list (cons "Calc" calc)))
-           (launcher--current-entries nil)
-           (launched nil)
-           (properties nil)
-           (collection nil)
+           (launcher--apps (list (cons "Calc" calc))) launched properties metadata
            (completing-read-function
-            (lambda (_prompt table &rest _)
-              (setq properties completion-extra-properties
-                    collection table)
-              "Calc")))
-      (cl-letf (((symbol-function 'launcher--launch) (lambda (path) (push path launched))))
-        (launcher))
-      (should (equal properties '(:affixation-function launcher--affixation)))
-      (should (equal (completion-metadata "" collection nil)
-                     '(metadata (category . launcher-app))))
+            (launcher-test--reader
+             (list (lambda ()
+                     (setq properties completion-extra-properties
+                           metadata (completion-metadata "" minibuffer-completion-table nil))
+                     "Calc")))))
+      ;; A fake reader does not normally bind the table, unlike completing-read.
+      (let* ((reader completing-read-function)
+             (completing-read-function
+              (lambda (prompt table &rest args)
+                (let ((minibuffer-completion-table table)) (apply reader prompt table args)))))
+        (cl-letf (((symbol-function 'launcher--launch) (lambda (path) (push path launched)))) (launcher)))
+      (should (equal properties '(:affixation-function launcher--results-affixation)))
+      (should (eq (completion-metadata-get metadata 'category) 'launcher-result))
       (should (equal launched (list calc)))
-      (should-not launcher--current-entries)
-      (should (equal (launcher-icons-test--apps-of (car launcher-icons-test--spawned))
-                     (list calc))))))
+      (should (equal (launcher-icons-test--apps-of (car launcher-icons-test--spawned)) (list calc))))))
 
 (ert-deftest launcher-icons-errors-never-fail-the-refresh ()
   (launcher-icons-test--with-cache
@@ -344,31 +346,23 @@ It is named like the launcher's own, as a shared directory may hold."
       (should (equal launcher--apps (list (cons "Calc" calc)))))))
 
 (ert-deftest launcher-icons-coexist-with-marginalia-and-nerd-icons ()
-  ;; Both advise `completion-metadata-get', as completion UIs ask it for
-  ;; the affixation function: the launcher's icon stays the only one.
   (skip-unless (and (require 'marginalia nil t) (require 'nerd-icons-completion nil t)))
   (launcher-icons-test--with-cache
     (let* ((calc (launcher-icons-test--app "Calc.app"))
-           (entries (list (cons "Calc" calc)))
-           (launcher--current-entries entries)
-           (launcher-bangs '(("!g" "Google" "https://www.google.com/search?q=%s")))
-           (completion-extra-properties (launcher--completion-properties entries))
-           (metadata (completion-metadata
-                      "" (launcher--make-collection entries nil 'launcher-app) nil)))
+           (launcher--query-session (launcher-icons-test--query-all (list (cons "Calc" calc))))
+           (completion-extra-properties '(:affixation-function launcher--results-affixation))
+           (metadata (completion-metadata "" (launcher--results-collection launcher--query-session) nil)))
       (launcher-icons-test--draw)
       (unwind-protect
           (progn
-            (marginalia-mode 1)
-            (nerd-icons-completion-mode 1)
-            (let* ((affixation (completion-metadata-get metadata 'affixation-function))
-                   (affixed (funcall affixation '("!g" "Calc"))))
-              (should (equal (mapcar #'car affixed) '("!g" "Calc")))
-              ;; One prefix of two characters: the icon or its space, and a gap.
-              (dolist (entry affixed)
-                (should (equal (substring-no-properties (nth 1 entry)) "  ")))
-              (should (eq (car (get-text-property 0 'display (nth 1 (nth 1 affixed)))) 'image))
-              (should (equal (nth 2 (car affixed)) "  → Google search"))))
-        (nerd-icons-completion-mode -1)
-        (marginalia-mode -1)))))
+            (marginalia-mode 1) (nerd-icons-completion-mode 1)
+            (let* ((fun (completion-metadata-get metadata 'affixation-function))
+                   (candidates (mapcar (lambda (r) (plist-get r :candidate))
+                                       (launcher--query-session-results launcher--query-session)))
+                   (affixed (funcall fun candidates)))
+              (should (equal (mapcar #'car affixed) candidates))
+              (should (eq (car (get-text-property 0 'display (nth 1 (car affixed)))) 'image))
+              (dolist (entry affixed) (should (equal (substring-no-properties (nth 1 entry)) "  ")))))
+        (marginalia-mode -1) (nerd-icons-completion-mode -1)))))
 
 ;;; launcher-icons-tests.el ends here

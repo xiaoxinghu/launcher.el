@@ -87,8 +87,8 @@ WIDTH is the pixel width of the row's text before its candidate."
   "Check ROWS of a list of launcher candidates: one icon per app, aligned."
   (should rows)
   (dolist (row rows)
-    (let ((app (string-match-p "\\.app\\|Calculator\\|Calendar\\|Chess\\|Clock\\|Contacts\\|Maps\\|Notes\\|Photos"
-                               (car row))))
+    (let ((app (and (not (string-match-p "Search web:" (car row))) (string-match-p "\\.app\\|Calculator\\|Calendar\\|Chess\\|Clock\\|Contacts\\|Maps\\|Notes\\|Photos"
+                               (car row)))))
       (if app
           (progn
             (should (= (length (nth 1 row)) 1))
@@ -123,13 +123,13 @@ the selected row included, without changing what is launched."
       (unwind-protect
           (launcher-gui--drive
            #'launcher
-           (list (lambda ()
+           (list "C" (lambda ()
                    (redisplay t)
                    (launcher-gui--capture "icons-vertico")
                    (push (list (launcher-gui-icons--vertico-string)
                                (launcher-gui-icons--line-heights (active-minibuffer-window)))
                          states))
-                 "No"
+                 'backspace "No"
                  (lambda ()
                    (redisplay t)
                    (launcher-gui--capture "icons-vertico-notes")

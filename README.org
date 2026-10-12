@@ -19,21 +19,38 @@ Launch macOS applications from Emacs.
 - ~M-x launcher-buffer~ — the same choices at the top of the selected
   window instead of the minibuffer (needs Vertico; see below)
 
-If input matches no app, falls back to a web search (~launcher-fallback-search-url~).
-Use ~!g query~, ~!gh query~, or ~!yt query~ for a specific search engine.
-Empty input, whitespace, or a configured bang without a query cancels without
-launching or searching.  Return accepts the completion UI's selected app even
-when no text has been typed.
+Empty input shows only the input box.  Type to see matching applications,
+calculations, custom tool results and web searches.  Return executes the
+selected result; blank input cancels.  Results stay in tool order:
+applications, calculator, your ~launcher-tools~, then the generated search tools.
 
-In stock completion, Space inserts a space and Tab completes.  Custom Space
-bindings and completion UIs such as Vertico are preserved.
+- ~c~ searches the cached app index, using your completion styles.
+- ~1 + 2 * 3~ previews ~= 7~; Return copies the value and closes the launcher.
+  Decimal numbers, parentheses and ~+ - * /~ are supported; ~= 42~ explicitly
+  requests a calculation.  Incomplete or invalid expressions keep a calculation
+  candidate showing ~= INVALID~, so default search does not appear between
+  keystrokes.  Return on INVALID keeps the input and copies nothing.
+- ~!~ offers configured search engines; ~!g~ offers both ~!g~ and ~!gh~.
+  Selecting ~!gh~ fills ~!gh ~ and
+  keeps the input open.  A prefix followed by only whitespace shows the tool's
+  prefix and name without querying; selecting it keeps the input unchanged.
+  ~!gh emacs~ previews a GitHub search, executed on Return.
+- In general search, if all tools return no candidates, Launcher offers one default web search
+  (~launcher-fallback-search-url~).  Input starting with ~http://~ or ~https://~
+  (ignoring case) instead shows ~Open URL:~ and opens the input unchanged.
+  Bare domains still use web search.  Any tool result removes this fallback;
+  each engine is an ordinary prefixed tool generated from ~launcher-bangs~.
+
+Space inserts text under stock completion; custom Space bindings are kept.
+Tab opens stock completion choices; with Vertico, Tab inserts a result's
+visible title (or a prefix entry plus its space).  Only a current result can execute: arbitrary text returned
+by a custom completion reader is not dispatched as an action.
 
 ** App icons
 
 On macOS, in a graphical frame, both commands show each app's own icon
-before its name, as macOS draws it.  Nothing else changes: matching,
-history, bangs, tools and what Return does are as before.  In a terminal,
-or with ~(setq launcher-show-icons nil)~, the list is text only, as before.
+before its name, as macOS draws it.  In a terminal, or with
+~(setq launcher-show-icons nil)~, the list is text only.
 
 - Icons come from AppKit (~NSWorkspace iconForFile:~), through macOS's
   built-in ~osascript~ and the packaged script ~assets/launcher-icons.js~:
@@ -59,14 +76,14 @@ or with ~(setq launcher-show-icons nil)~, the list is text only, as before.
 - If an icon cannot be drawn, the app is listed and launched as usual; the
   failure is noted in the hidden buffer ~" *launcher-icons*"~ and tried
   again after the next index refresh.
-- With icons, the launcher's completion category is ~launcher-app~, so
+- With icons, the result list's completion category is ~launcher-result~, so
   that add-ons such as ~nerd-icons-completion~ add no generic icon of
   their own; Marginalia and Vertico work as before.
 
 ** Full-buffer launcher
 
-~launcher-buffer~ offers exactly the choices of ~launcher~ (apps, bangs,
-web fallback, empty-input cancellation, [[*Tools][tools]]), with Vertico showing the prompt
+~launcher-buffer~ offers exactly the choices of ~launcher~ (apps, calculations,
+bangs, web search, empty-input cancellation, [[*Tools][tools]]), with Vertico showing the prompt
 and candidates at the top of the selected ordinary window.  ~C-u~ also
 rebuilds the index first.  It needs Emacs 29.1 and Vertico 2.x (tested with
 2.15) with ~vertico-mode~ enabled.  Loading launcher does not load Vertico;
@@ -85,10 +102,10 @@ The command owns its interaction until a choice succeeds or you quit:
   starts, or as many as a shorter window fits; moving the selection scrolls
   through the rest.
 - Escape or ~C-g~ quits from any view, signaling ~quit~ as ~launcher~ does.
-  Later views, a tool's query and its result, replace the picker in the
-  same window; ~C-c C-b~ (~launcher-back~) returns to the previous view.
-  These keys live in ~launcher-buffer-picker-map~, added to Vertico's keys
-  in the picker and to ~launcher-query-map~ in a query, and
+  A result replaces the picker in the same window; ~C-c C-b~
+  (~launcher-back~) restores the full submitted input, including its prefix.
+  These keys live in ~launcher-buffer-picker-map~, added to the unified
+  input's ~launcher-query-map~ and Vertico keys, and
   ~launcher-buffer-map~, active in a result view only while its window is
   selected.  A result keeps its own mode and keys.  Both keymaps are in
   launcher-buffer.el, loaded on first use: change them in
@@ -96,8 +113,10 @@ The command owns its interaction until a choice succeeds or you quit:
 - On exit the window shows its previous buffer again, at the same position,
   with its dedication and buffer history.  If you put another buffer in the
   window meanwhile, it stays.  Deleting the window ends the interaction.
-- Your completion styles, annotations, sorting, ~completing-read-function~
-  (which must use Vertico) and Vertico keys apply.  The picker always uses
+- Your completion styles apply to app matching.  The result list preserves
+  tool order and supplied annotations; completion UIs do not filter dynamic
+  actions a second time.  Your ~completing-read-function~ (which must use
+  Vertico) and navigation keys apply.  The picker always uses
   Vertico's buffer display, in its own minibuffer only: other prompts,
   including ones nested inside the picker, keep your display modes and
   ~vertico-multiform~ rules.
@@ -108,73 +127,87 @@ Sizing a host's window to its content is up to the host.
 
 ** Tools
 
-~launcher-tools~ (default ~nil~) routes a prefix to a function of your own,
-which looks something up and returns a buffer.  For example, with a
-~my-dictionary-lookup~ you provide:
+~launcher-tools~ (default ~nil~) adds custom tools between the built-in
+calculator and generated search tools.  Applications, calculator and bangs are always
+added automatically, even when you configure your own tools.
+
+A tool has one optional prefix, a required name, and either a preview
+function (~:query~) or, for a prefixed tool, a submit-only ~:function~:
 
 #+begin_src emacs-lisp
+;; This file needs lexical-binding: t so each action captures its query.
+(defun my-definition-query (query)
+  (unless (string-blank-p query)
+    (let ((word query))
+      (list (list :id word :title word :subtitle "Look up definition"
+                  :function (lambda () (my-dictionary-lookup word)))))))
+
 (setq launcher-tools
-      '(("d" :name "Dictionary" :prompt "Word: "
-              :function my-dictionary-lookup)))
+      '(("d" :name "Dictionary" :query my-definition-query :debounce 0.2)
+        (nil :name "Other results" :query my-general-query)))
 #+end_src
 
-Typing ~d~ and Space at the start of the input leaves the app list at once
-for a query labelled ~Dictionary — Word:~.  The query is plain text: no
-candidates, no completion and no web search; Space and Unicode are text.
-Return calls the function once with the query, as typed after ~d SPC~, and
-shows the buffer it returns.  Typing calls nothing.  Pasted text and history
-recalled with ~M-p~ route the same way, the rest becoming the query.
+Typing ~d hello~ keeps that complete text in the input box.  The dictionary
+query receives ~hello~ and is the only tool queried.  Without an explicit
+prefix, all unprefixed tools participate.  Only the selected result action
+runs on Return.
 
-- A prefix is any nonempty string without whitespace, such as ~d~, ~dd~ or
-  ~!d~, matched exactly, case included, and only when followed by a Space.
-  So ~d~ alone, ~D word~ or ~dx word~ is app or web input, as before.
-  Prefixes must differ from each other and from the keys of
-  ~launcher-bangs~; both commands check ~launcher-tools~ when they start,
-  and refuse an invalid entry with an error saying what is wrong.
-- The function takes one string and returns a live buffer.  It can be a
-  named, autoloaded or anonymous function.  It does not prompt or display
-  the buffer itself, and any normalization of the query is up to it.  It
-  may keep updating its buffer after returning.
-- A blank query is refused in place.  If the function signals an error,
-  is not defined, or returns anything but a live buffer, the query reports
-  it and keeps its text, so you can correct it and press Return again.
-- In the query, ~C-c C-b~ (~launcher-back~), or deleting backward in an
-  empty query, returns to the picker, which shows the prefix.  In
-  ~launcher-buffer~, ~C-c C-b~ in a result returns to its query, with the
-  text you submitted and without calling the function again.  Escape or
-  ~C-g~ quits from any view.  Customize the query's keys in
-  ~launcher-query-map~.
-- ~launcher~ closes the minibuffer, then shows the result with
-  ~pop-to-buffer~, following your display rules.  ~launcher-buffer~ shows
-  it in its own window, where it keeps its major mode, keys and read-only
-  state; scrolling and copying work as in any buffer.  A result that grows
-  keeps your position, unless point is at the end of a nonempty result:
-  then the window follows the new text.
-- Launcher never kills, erases or changes a result buffer.  Quitting or
-  going back does not stop the function's own work: a buffer it keeps
-  updating does so in the background, and is not shown again.
-- With tools configured, both commands open even when app discovery fails
-  (say, without Spotlight's ~mdfind~): the prompt reads
-  ~Launch (apps unavailable):~ and the reason is in ~*Messages*~.  Without
-  tools, such failures are errors, as before.
-- Each tool keeps its own query history, separate from the picker's, for
-  the session only: routed input never enters the picker's history, and
-  ~savehist-mode~ does not save tool queries.  To keep a tool's history like
-  any other minibuffer history, name a variable with ~:history my-var~; ~:history
-  t~ keeps none.
-- A custom Space binding in the picker is kept; if it does not insert a
-  space, type the prefix by pasting instead.
+- PREFIX is nil, ~""~, or one string without whitespace.  A nonempty prefix
+  matches case-sensitively only when followed by an ASCII space; ~D hello~
+  and ~dx hello~ do not invoke the ~d~ tool.  Nonempty prefixes
+  must differ from other tools' prefixes and ~launcher-bangs~ keys.
+  Before a space, matching prefix entries appear alongside general results:
+  ~t~ offers ~t~, ~tt~, ~ttt~; ~tt~ offers ~tt~, ~ttt~.  Return or Tab on ~ttt~
+  fills ~ttt ~ and enters that tool without executing an action.  A single
+  matching prefix also gets an entry.  An exact prefix followed by a space
+  exclusively routes to its tool; general tools and all prefix entries then
+  disappear.  Search engines use this same routing, with no bang exception.
+- With no prefix, ~:query~ is required.  It receives the entire input.
+  With a matching prefix, it receives the remaining text unchanged.
+  Empty or whitespace-only input queries no tools.
+- ~:query~ returns a list of result plists, or nil.  Each result requires
+  a stable ~:id~, a nonblank ~:title~, and a no-argument ~:function~;
+  ~:subtitle~ and ~:icon-path~ (an application path) are optional.
+  Ids must be unique within a tool; titles can repeat.  Results retain
+  their tool's returned order, and selection follows a surviving id.
+- Result functions return nil after an action, a live non-minibuffer buffer
+  to show, or ~(:input STRING)~ to replace input and keep querying.  Query
+  functions should generate previews without executing actions, displaying
+  buffers, or changing an existing result buffer.
+- ~:debounce~ is a nonnegative number of seconds, default 0.  Each tool has
+  its own timer.  New input withdraws old results and cancels pending
+  queries; navigation does not query again.  Query functions are synchronous,
+  so debouncing reduces calls but a slow call can still block Emacs.
+  Pending debounced queries show a status such as
+  ~Querying Dictionary...~ while waiting and running, cleared on completion.
+- Without ~:query~, a prefixed tool needs ~:function~.  Launcher generates
+  an execution candidate for a nonblank query, without calling the function
+  while you type.  Selecting it calls the function with the query string;
+  its return value follows the result-action contract above.  Existing
+  ~:prompt~ settings are accepted but no separate query prompt is shown.
+- Explicit tool searches show pending status, ~No results~, or the query
+  error, without default web-search fallback.  General-search query errors
+  do not suppress other tools.  Action errors keep input for editing or retry.
+- Submitted prefixed-tool queries have separate session histories.  Name a
+  variable with ~:history my-var~ to persist it through ~savehist-mode~, or
+  use ~:history t~ for none.  Type the prefix and a space, then ~M-p~/~M-n~
+  to recall queries with the prefix restored.  Non-prefixed results use
+  the picker's ~minibuffer-history~.
+- ~launcher~ closes the minibuffer before showing a returned buffer with
+  ~pop-to-buffer~.  ~launcher-buffer~ shows it in its own window, preserving
+  the result mode and keys; ~C-c C-b~ returns to the full input.  Growing
+  results follow new text only when the result window is already at the end.
+- Launcher does not kill result buffers.  Both commands remain usable when
+  app discovery fails; the prompt notes that apps are unavailable.
 
-A host that shows only a minibuffer, such as Portal's ~:kind 'minibuffer~
-panel, has no window to show a result in: ~launcher~ then shows it with
-~pop-to-buffer~ in another frame or window, wherever your display rules
-put it.  Use ~launcher-buffer~ in a buffer panel for results, or bind
-~launcher-tools~ to ~nil~ around ~launcher~ there.
+A minibuffer-only host has no ordinary window for a result buffer;
+~launcher~ uses your ~pop-to-buffer~ display rules.  Use ~launcher-buffer~
+in a buffer host for results inside the launcher window.
 
 ** Apple Dictionary
 
-~launcher-osx-dictionary.el~ provides ~launcher-osx-dictionary-lookup~, a
-tool function that looks a word up in Apple's dictionaries with the
+~launcher-osx-dictionary.el~ provides ~launcher-osx-dictionary-query~ for
+previews and ~launcher-osx-dictionary-lookup~ for submit-only lookups in Apple's dictionaries with the
 [[https://github.com/xuchunyang/osx-dictionary.el][osx-dictionary]] package.  Launcher does not depend on that package, and
 registers no prefix for it; choose your own:
 
@@ -182,11 +215,14 @@ registers no prefix for it; choose your own:
 (use-package osx-dictionary :ensure t)
 (require 'launcher-osx-dictionary)
 (setq launcher-tools
-      '(("d" :name "Dictionary" :prompt "Word: "
+      '(("d" :name "Dictionary"
+              :query launcher-osx-dictionary-query :debounce 0.2
               :function launcher-osx-dictionary-lookup)))
 #+end_src
 
-Then ~d SPC hello RET~ shows the definitions, rendered by osx-dictionary in
+Then ~d hello~ previews a definition after 200 ms without input changes.
+Return on the dictionary candidate shows the captured definitions without
+looking them up a second time, rendered by osx-dictionary in
 its own mode, in ~launcher-buffer~'s window, or by ordinary display from
 ~launcher~.  The lookup itself opens nothing: no Dictionary.app, browser,
 second prompt, window or frame.
@@ -202,7 +238,7 @@ second prompt, window or frame.
 - The result keeps osx-dictionary's keys, except three that would show
   the package's own buffer or restore a window configuration it saved,
   replaced in this buffer only (~launcher-osx-dictionary-result-mode~):
-  in ~launcher-buffer~, ~q~ and ~s~ return to the query, with the word,
+  in ~launcher-buffer~, ~q~ and ~s~ return to the input, including ~d hello~,
   as ~C-c C-b~ does.  After ~launcher~, ~q~ quits the window as
   ~quit-window~ and ~s~ reads another word into this buffer.  ~S~ chooses
   the dictionaries, then looks the word up again in this buffer.  ~o~
@@ -212,8 +248,9 @@ second prompt, window or frame.
 - It needs macOS, osx-dictionary, and its native helper
   ~osx-dictionary-cli~.  If the helper is missing, the first lookup builds
   it into the package's directory, as the package itself would, which
-  needs Xcode's command line tools (~xcode-select --install~).  Typing never
-  builds or looks anything up.
+  needs Xcode's command line tools (~xcode-select --install~).  With preview
+  enabled, the first debounced query can build the helper.  Omit ~:query~
+  to keep all lookup work until Return.
 - Failures keep the query and its text, and say what went wrong: another
   platform, a missing package, an incompatible version, a missing helper
   source, compiler or writable directory, a failed build or helper, no
@@ -273,9 +310,9 @@ M-x.app registers the ~emacs://~ URL scheme, letting you invoke Elisp from a glo
 
 This is part of a broader effort to replace Raycast with Emacs.
 
-** TODO *Bang commands*
+** DONE *Bang commands*
 ~!g query~, ~!gh repo~, ~!yt video~ to redirect input to configurable URL templates
 ** TODO *Custom commands*
 register named elisp actions alongside apps via ~launcher-register-command~
 ** TODO *Built-in extensions*
-calculator, clipboard history, window management, system commands (sleep/lock/restart), file search, quick links, snippets
+clipboard history, window management, system commands (sleep/lock/restart), file search, quick links, snippets
